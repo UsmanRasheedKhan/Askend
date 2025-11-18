@@ -1,0 +1,70 @@
+import React from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+
+// --- CORE SCREEN IMPORTS ---
+import PasswordUpdateScreen from "./app/screens/PasswordUpdateScreen";
+import SignInScreen from "./app/screens/SignInScreen";
+import SignUpScreen from "./app/screens/SignUpScreen";
+import HomeScreen from "./app/screens/HomeScreen";
+import RoleSelectionScreen from "./app/screens/RoleSelectionScreen";
+import FillerDashboardScreen from "./app/screens/FillerDashboardScreen.js";
+import CreatorDashboardScreen from "./app/screens/CreatorDashboardScreen.js";
+import ForgotPasswordScreen from "./app/screens/ForgotPasswordScreen";
+import CreateNewSurveyScreen from "./app/screens/CreateNewSurveyScreen";
+
+// --- PROFILE COMPLETION FLOW IMPORTS ---
+import ProfileCompletionScreen from "./app/screens/ProfileCompletionScreen";
+import ContactInfoScreen from "./app/screens/ContactInfoScreen.js";
+import ProfessionalInfoScreen from "./app/screens/ProfessionalInfoScreen";
+import InterestAndHobbiesScreen from "./app/screens/InterestAndHobbiesScreen";
+
+const Stack = createNativeStackNavigator();
+
+// ----------------------------------------------------------------
+// Deep Linking Configuration
+// ----------------------------------------------------------------
+const linking = {
+  prefixes: ["askend://"],
+  config: {
+    screens: {
+      PasswordUpdateScreen: "update-password",
+      SignIn: "auth/callback",
+      Home: "home",
+    },
+  },
+};
+
+// ----------------------------------------------------------------
+
+const AppNavigator = () => {
+  return (
+    <NavigationContainer linking={linking}>
+      <Stack.Navigator
+        initialRouteName="SignIn"
+        screenOptions={{
+          headerShown: false,
+        }}
+      >
+        {/* --- Authentication & Dashboard Screens --- */}
+        <Stack.Screen name="RoleSelection" component={RoleSelectionScreen} />
+        <Stack.Screen name="SignIn" component={SignInScreen} />
+        <Stack.Screen name="SignUp" component={SignUpScreen} />
+        <Stack.Screen name="ForgotPasswordScreen" component={ForgotPasswordScreen} />
+        <Stack.Screen name="PasswordUpdateScreen" component={PasswordUpdateScreen} />
+        <Stack.Screen name="Home" component={HomeScreen} />
+        <Stack.Screen name="FillerDashboard" component={FillerDashboardScreen} />
+        <Stack.Screen name="CreatorDashboard" component={CreatorDashboardScreen} />
+        <Stack.Screen name="CreateNewSurvey" component={CreateNewSurveyScreen} />
+        
+        {/* --- PROFILE COMPLETION FLOW (Steps 1, 2, 3, 4) --- */}
+        <Stack.Screen name="ProfileCompletionScreen" component={ProfileCompletionScreen} />
+        <Stack.Screen name="ContactInfo" component={ContactInfoScreen} />
+        <Stack.Screen name="ProfessionalInfo" component={ProfessionalInfoScreen} />
+        <Stack.Screen name="InterestAndHobbies" component={InterestAndHobbiesScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+};
+
+export default AppNavigator;
