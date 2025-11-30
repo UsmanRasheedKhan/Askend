@@ -1,19 +1,56 @@
 // app/screens/CreatorDashboardScreen.js
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   StyleSheet,
   View,
   Text,
   ScrollView,
   TouchableOpacity,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useIsFocused } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const CreatorDashboardScreen = () => {
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
+  
+  const [draftsCount, setDraftsCount] = useState(0);
+  const [publishedCount, setPublishedCount] = useState(5); // Keeping your existing published count
+  const [finishedCount, setFinishedCount] = useState(2); // Keeping your existing finished count
+
+  // Load drafts count when screen is focused
+  useEffect(() => {
+    loadDraftsCount();
+  }, [isFocused]);
+
+  const loadDraftsCount = async () => {
+    try {
+      const savedDrafts = await AsyncStorage.getItem('surveyDrafts');
+      const drafts = savedDrafts ? JSON.parse(savedDrafts) : [];
+      setDraftsCount(drafts.length);
+    } catch (error) {
+      console.error('Error loading drafts count:', error);
+      setDraftsCount(0);
+    }
+  };
+
+  const handleDraftsPress = () => {
+    navigation.navigate('DraftsScreen'); // You'll need to create this screen
+  };
+
+  const handlePublishedPress = () => {
+    // Navigate to published surveys screen
+    Alert.alert("Published Surveys", "Navigate to published surveys screen");
+  };
+
+  const handleFinishedPress = () => {
+    // Navigate to finished surveys screen
+    Alert.alert("Finished Surveys", "Navigate to finished surveys screen");
+  };
 
   return (
     <View style={styles.container}>
@@ -55,7 +92,8 @@ const CreatorDashboardScreen = () => {
           iconName="pencil-outline"
           title="Drafts"
           description="Work in progress"
-          count={3}
+          count={draftsCount}
+          onPress={handleDraftsPress}
           iconStartColor="#FFD464"
         />
 
@@ -64,7 +102,8 @@ const CreatorDashboardScreen = () => {
           iconName="send"
           title="Published"
           description="Live and collecting"
-          count={5}
+          count={publishedCount}
+          onPress={handlePublishedPress}
           iconStartColor="#FFD464"
         />
 
@@ -73,7 +112,8 @@ const CreatorDashboardScreen = () => {
           iconName="check-circle-outline"
           title="Finished"
           description="Analysis ready"
-          count={2}
+          count={finishedCount}
+          onPress={handleFinishedPress}
           iconStartColor="#FFD464"
         />
 
@@ -115,9 +155,10 @@ const SurveyStatusCard = ({
   title,
   description,
   count,
+  onPress,
   iconStartColor,
 }) => (
-  <TouchableOpacity style={styles.cardContainer}>
+  <TouchableOpacity style={styles.cardContainer} onPress={onPress}>
     {/* Card Background Gradient - Simulates the light, subtle color */}
     <LinearGradient
       colors={["#FFFFFF", "#FFF8E1"]}

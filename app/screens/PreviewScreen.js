@@ -15,6 +15,8 @@ import {
 import { MaterialIcons, MaterialCommunityIcons, FontAwesome } from '@expo/vector-icons';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
+// Note: Ensure ChoosePlanScreen is imported if in the same file/structure, 
+// otherwise we rely on the navigation stack to know the route name.
 
 // --- Small visual helpers ---
 const RadioVisual = ({ selected }) => (
@@ -33,7 +35,7 @@ const CheckboxVisual = ({ checked }) => (
     )
 );
 
-// Star component (For Question 4) - UPDATED ✅
+// Star component (For Question 4)
 const StarRatingVisual = ({ maxStars = 5, initialRating = 3.5 }) => {
     const stars = [];
     const fullStars = Math.floor(initialRating);
@@ -149,10 +151,9 @@ const renderQuestion = (question, index) => {
 
     let content;
 
-    // ✅ FIXED: Match question types with CreateNewSurveyScreen
     switch (questionType) {
         case 'multiple_choice':
-        case 'radio_choice': // ✅ Support both types
+        case 'radio_choice': 
             content = (
                 <View style={styles.optionsContainer}>
                     {actualOptions.map((option, optIndex) => (
@@ -208,7 +209,7 @@ const renderQuestion = (question, index) => {
             );
             break;
             
-        case 'rating': // ✅ Q4 - Star Rating
+        case 'rating': 
             content = (
                 <View style={styles.ratingContainer}>
                     <StarRatingVisual initialRating={3.5} /> 
@@ -216,8 +217,8 @@ const renderQuestion = (question, index) => {
             );
             break;
 
-        case 'linear_scale': // ✅ Q6 - Linear Scale (FIXED NAME)
-        case 'linear_rating': // ✅ Support both names
+        case 'linear_scale': 
+        case 'linear_rating': 
             content = (
                 <View style={styles.ratingContainer}>
                     <LinearScaleVisual min={1} max={5} initialValue={3} />
@@ -234,8 +235,8 @@ const renderQuestion = (question, index) => {
             );
             break;
 
-        case 'file_upload': // ✅ Q9 - File Upload (FIXED NAME)
-        case 'picture_upload': // ✅ Support both names
+        case 'file_upload': 
+        case 'picture_upload': 
             content = (
                 <View style={styles.uploadContainer}>
                     <MaterialIcons name="camera-alt" size={40} color="#FF7E1D" />
@@ -244,8 +245,8 @@ const renderQuestion = (question, index) => {
             );
             break;
             
-        case 'phone': // ✅ Q10 - Phone Number (FIXED NAME)
-        case 'phone_number': // ✅ Support both names
+        case 'phone': 
+        case 'phone_number': 
             content = (
                 <View style={styles.iconTextInputContainer}>
                     <FontAwesome name="phone" size={20} color="#999" style={styles.inputIcon} />
@@ -260,7 +261,7 @@ const renderQuestion = (question, index) => {
             );
             break;
 
-        case 'email': // ✅ Q11 - Email
+        case 'email': 
             content = (
                 <View style={styles.iconTextInputContainer}>
                     <MaterialIcons name="email" size={20} color="#999" style={styles.inputIcon} />
@@ -275,7 +276,7 @@ const renderQuestion = (question, index) => {
             );
             break;
 
-        case 'time': // ✅ Q12 - Time
+        case 'time': 
             content = (
                 <View style={styles.dateInputContainer}>
                     <Text style={styles.dateText}>10:30 AM</Text>
@@ -284,7 +285,7 @@ const renderQuestion = (question, index) => {
             );
             break;
 
-        case 'date': // ✅ Q5 - Date
+        case 'date': 
             content = (
                 <View style={styles.dateInputContainer}>
                     <Text style={styles.dateText}>01/15/2024</Text>
@@ -294,7 +295,6 @@ const renderQuestion = (question, index) => {
             break;
 
         default:
-            // ✅ DEBUG: Show which question type is not supported
             content = (
                 <View>
                     <Text style={styles.unsupportedText}>
@@ -329,13 +329,12 @@ const mockFormData = {
         { id: 'q4', questionType: 'rating', questionText: 'How likely are you to recommend us?', isRequired: false },
         { id: 'q5', questionType: 'date', questionText: 'When did you first use our service?', isRequired: false },
         
-        { id: 'q6', questionType: 'linear_scale', questionText: 'How satisfied are you with the feature?', isRequired: true, min: 1, max: 5 }, // ✅ FIXED: linear_scale
+        { id: 'q6', questionType: 'linear_scale', questionText: 'How satisfied are you with the feature?', isRequired: true, min: 1, max: 5 },
         { id: 'q7', questionType: 'short_answer', questionText: 'Most fave celeb?', isRequired: true, placeholder: "Type name here..." }, 
         { id: 'q8', questionType: 'dropdown', questionText: 'Select your preferred location.', isRequired: true, options: ["North", "South", "East", "West"] }, 
         
-        // ✅ FIXED: Using correct question type names
-        { id: 'q9', questionType: 'file_upload', questionText: 'Upload a picture of the product.', isRequired: false }, // ✅ FIXED: file_upload
-        { id: 'q10', questionType: 'phone', questionText: 'What is your contact number?', isRequired: true }, // ✅ FIXED: phone
+        { id: 'q9', questionType: 'file_upload', questionText: 'Upload a picture of the product.', isRequired: false },
+        { id: 'q10', questionType: 'phone', questionText: 'What is your contact number?', isRequired: true }, 
         { id: 'q11', questionType: 'email', questionText: 'Enter your email address.', isRequired: true }, 
         { id: 'q12', questionType: 'time', questionText: 'What time did the incident occur?', isRequired: false }, 
     ]
@@ -345,7 +344,7 @@ const mockFormData = {
 const PreviewScreen = ({ navigation, route }) => {
     const formData = route.params?.formData || mockFormData;
 
-    // ✅ DEBUG: Log the incoming data to see question types
+    // DEBUG: Log the incoming data to see question types
     React.useEffect(() => {
         if (route.params?.formData) {
             console.log('Received form data:', JSON.stringify(route.params.formData, null, 2));
@@ -370,8 +369,13 @@ const PreviewScreen = ({ navigation, route }) => {
         navigation.goBack();
     };
 
+    // ✅ UPDATED: Navigation to ChoosePlanScreen
     const handlePublishSurvey = () => {
-        Alert.alert("Publish Survey", "Your survey is now live! (Simulated)");
+        // Navigate to the 'ChoosePlanScreen' route, passing the survey data if needed
+        navigation.navigate('ChoosePlanScreen', { 
+            surveyId: formData.id, 
+            surveyTitle: formHeading 
+        });
     };
 
     return (
@@ -540,12 +544,13 @@ const styles = StyleSheet.create({
 
     scrollContent: {
         paddingHorizontal: 16,
+        paddingTop: 30,
         paddingBottom: 160, 
     },
 
     // --- Form Header Card ---
     formHeader: {
-        marginTop: 30,
+        marginTop: 0, // Adjusted as padding is in scrollContent
         marginBottom: 16,
         
     },
@@ -721,7 +726,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#F0EDEA',
         backgroundColor: '#FBFBFB',
-        paddingHorizontal: 12, // Use horizontal padding for consistency
+        paddingHorizontal: 12, 
         marginTop: 8,
     },
     // Style for Long Answer (multi-line)
@@ -735,7 +740,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center', 
     },
     longTextInput: {
-        flex: 1, // Take up available space in container
+        flex: 1, 
         fontSize: 15,
         color: '#333',
         padding: 0,
@@ -763,7 +768,7 @@ const styles = StyleSheet.create({
         paddingVertical: 0,
     },
 
-    // --- Rating (Q4) - UPDATED STYLES ✅ ---
+    // --- Rating (Q4) ---
     ratingContainer: {
         marginTop: 10,
     },
@@ -955,18 +960,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#FF7E1D',
         borderRadius: 8,
     },
-    unsupportedText: { 
-        color: '#FF6B6B',
-        fontSize: 16,
-        marginTop: 8,
-        fontWeight: '600',
-    },
-    debugText: {
-        color: '#999',
-        fontSize: 12,
-        marginTop: 4,
-        fontStyle: 'italic',
-    }
 });
 
 export default PreviewScreen;

@@ -13,6 +13,8 @@ import CreatorDashboardScreen from "./app/screens/CreatorDashboardScreen.js";
 import ForgotPasswordScreen from "./app/screens/ForgotPasswordScreen";
 import CreateNewSurveyScreen from "./app/screens/CreateNewSurveyScreen";
 import PreviewScreen from './app/screens/PreviewScreen';
+import DraftsScreen from './app/screens/DraftsScreen';
+import ChoosePlanScreen from './app/screens/ChoosePlanScreen';
 // --- PROFILE COMPLETION FLOW IMPORTS ---
 import ProfileCompletionScreen from "./app/screens/ProfileCompletionScreen";
 import ContactInfoScreen from "./app/screens/ContactInfoScreen.js";
@@ -57,6 +59,8 @@ const AppNavigator = () => {
         <Stack.Screen name="CreatorDashboard" component={CreatorDashboardScreen} />
         <Stack.Screen name="CreateNewSurvey" component={CreateNewSurveyScreen} />
         <Stack.Screen name="PreviewScreen" component={PreviewScreen} />
+        <Stack.Screen name="DraftsScreen" component={DraftsScreen} />
+        <Stack.Screen name="ChoosePlanScreen" component={ChoosePlanScreen} />
         
         {/* --- PROFILE COMPLETION FLOW (Steps 1, 2, 3, 4) --- */}
         <Stack.Screen name="ProfileCompletionScreen" component={ProfileCompletionScreen} />
