@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput, Switch, Modal } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput, Switch, Modal, Image, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 // --- Survey Categories Data ---
@@ -220,12 +221,26 @@ const INTEREST_DATA = [
     },
 ];
 
+// A small set of icons users can pick from (MaterialCommunityIcons names)
+const ICON_OPTIONS = [
+    { name: 'star-outline', color: '#FFB84D' },
+    { name: 'image-outline', color: '#8B4DFF' },
+    { name: 'camera-outline', color: '#00A0FF' },
+    { name: 'heart-outline', color: '#FF94B0' },
+    { name: 'tag-outline', color: '#33C37D' },
+    { name: 'alert-circle-outline', color: '#FF6B6B' }
+];
+
 // --- MAIN SCREEN COMPONENT ---
 const CreateNewSurveyScreen = ({ navigation }) => {
     const [isPublicForm, setIsPublicForm] = useState(false);
     const [isRequiredQuestion, setIsRequiredQuestion] = useState(true);
     const [selectedCategory, setSelectedCategory] = useState(null);
     const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+    
+    // Form heading and description states
+    const [formHeading, setFormHeading] = useState('');
+    const [formDescription, setFormDescription] = useState('');
     
     // Demographic dropdown states
     const [selectedGender, setSelectedGender] = useState(null);
@@ -256,23 +271,44 @@ const CreateNewSurveyScreen = ({ navigation }) => {
     const [selectedMainCategory, setSelectedMainCategory] = useState(null);
 
     // Question Builder states
-    // IMPORTANT CHANGE: initial option values are empty strings so they act as placeholders.
+    // initial option values are empty strings so they act as placeholders.
     const [questions, setQuestions] = useState([
         {
             id: 1,
             questionText: '',
             questionType: 'multiple_choice',
             options: ['', '', ''], // empty values so TextInput shows placeholder "Option 1" etc.
-            isRequired: true
+            isRequired: true,
+            // new field to store image/icon info
+            media: null // { type: 'image'|'icon', uri?, iconName?, iconColor? }
         }
     ]);
     const [showQuestionTypeDropdown, setShowQuestionTypeDropdown] = useState(false);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
 
+    // Image/Icon UI states
+    const [showImageIconActionModal, setShowImageIconActionModal] = useState(false);
+    const [showIconPickerModal, setShowIconPickerModal] = useState(false);
+
     const handleCategorySelect = (category) => {
         setSelectedCategory(category);
         setShowCategoryDropdown(false);
     };
+
+    // Request permissions for media library on mount
+    useEffect(() => {
+        (async () => {
+            try {
+                const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (status !== 'granted') {
+                    // Inform user that permission is needed; keep UI functional without permission.
+                    // We won't block, but image picker will fail gracefully.
+                }
+            } catch (e) {
+                // ignore errors
+            }
+        })();
+    }, []);
 
     // Close all other dropdowns when opening one
     const closeAllDropdowns = () => {
@@ -491,7 +527,8 @@ const CreateNewSurveyScreen = ({ navigation }) => {
             questionText: '',
             questionType: 'multiple_choice',
             options: ['', '', ''], // empty placeholders
-            isRequired: true
+            isRequired: true,
+            media: null
         };
         setQuestions([...questions, newQuestion]);
         setCurrentQuestionIndex(questions.length);
@@ -507,9 +544,8 @@ const CreateNewSurveyScreen = ({ navigation }) => {
         setIsRequiredQuestion(!isRequiredQuestion);
     };
 
-    // NEW: delete question handler
+    // delete question handler
     const removeQuestion = (indexToRemove) => {
-        // indexToRemove refers to position in array
         if (questions.length === 1) {
             // If only one question exists, reset it to default empty question instead of removing entirely
             const resetQuestion = {
@@ -517,7 +553,8 @@ const CreateNewSurveyScreen = ({ navigation }) => {
                 questionText: '',
                 questionType: 'multiple_choice',
                 options: ['', '', ''],
-                isRequired: true
+                isRequired: true,
+                media: null
             };
             setQuestions([resetQuestion]);
             setCurrentQuestionIndex(0);
@@ -531,14 +568,11 @@ const CreateNewSurveyScreen = ({ navigation }) => {
 
         // Update currentQuestionIndex safely
         if (indexToRemove === currentQuestionIndex) {
-            // Move to previous question if possible, otherwise stay at 0
             const newIndex = Math.max(0, currentQuestionIndex - 1);
             setCurrentQuestionIndex(newIndex);
         } else if (indexToRemove < currentQuestionIndex) {
-            // If removed an earlier question, shift current index back by 1
             setCurrentQuestionIndex(currentQuestionIndex - 1);
         } else {
-            // removed an after-index, currentQuestionIndex stays the same
             setCurrentQuestionIndex(currentQuestionIndex);
         }
     };
@@ -582,6 +616,89 @@ const CreateNewSurveyScreen = ({ navigation }) => {
     // Option letter colors to visually match the screenshot
     const optionBadgeColors = ['#00A0FF', '#33C37D', '#8B4DFF', '#FF94B0', '#FFB84D', '#7FB3FF'];
 
+    // --- Image/Icon handlers ---
+    const openImageIconAction = () => {
+        setShowImageIconActionModal(true);
+    };
+
+    const pickImageFromLibrary = async () => {
+        try {
+            setShowImageIconActionModal(false);
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                quality: 0.8,
+            });
+
+            if (!result.cancelled) {
+                const updated = [...questions];
+                updated[currentQuestionIndex] = {
+                    ...updated[currentQuestionIndex],
+                    media: {
+                        type: 'image',
+                        uri: result.uri
+                    }
+                };
+                setQuestions(updated);
+            }
+        } catch (e) {
+            Alert.alert('Error', 'Could not open image library.');
+        }
+    };
+
+    const openIconPicker = () => {
+        setShowImageIconActionModal(false);
+        setShowIconPickerModal(true);
+    };
+
+    const setIconForCurrentQuestion = (iconName, iconColor) => {
+        const updated = [...questions];
+        updated[currentQuestionIndex] = {
+            ...updated[currentQuestionIndex],
+            media: {
+                type: 'icon',
+                iconName,
+                iconColor
+            }
+        };
+        setQuestions(updated);
+        setShowIconPickerModal(false);
+    };
+
+    const removeMediaFromCurrentQuestion = () => {
+        const updated = [...questions];
+        updated[currentQuestionIndex] = {
+            ...updated[currentQuestionIndex],
+            media: null
+        };
+        setQuestions(updated);
+        setShowImageIconActionModal(false);
+        setShowIconPickerModal(false);
+    };
+
+    // --- PREVIEW FUNCTIONALITY ---
+    const handlePreview = () => {
+        const formData = {
+            formHeading,
+            formDescription,
+            selectedCategory,
+            isPublicForm,
+            questions,
+            demographicFilters: {
+                gender: selectedGender,
+                age: selectedAge,
+                maritalStatus: selectedMaritalStatus,
+                location: selectedLocation,
+                education: selectedEducation,
+                profession: selectedProfession,
+                salary: selectedSalary,
+                interests: selectedInterests
+            }
+        };
+
+        navigation.navigate('PreviewScreen', { formData });
+    };
+
     return (
         <View style={styles.container}>
             
@@ -623,6 +740,8 @@ const CreateNewSurveyScreen = ({ navigation }) => {
                         style={styles.textInput}
                         placeholder="Enter form title"
                         placeholderTextColor="#aaa"
+                        value={formHeading}
+                        onChangeText={setFormHeading}
                     />
 
                     {/* Form Description */}
@@ -633,6 +752,8 @@ const CreateNewSurveyScreen = ({ navigation }) => {
                         placeholderTextColor="#aaa"
                         multiline
                         numberOfLines={4}
+                        value={formDescription}
+                        onChangeText={setFormDescription}
                     />
                     
                     {/* Select Category */}
@@ -977,10 +1098,34 @@ const CreateNewSurveyScreen = ({ navigation }) => {
                                 />
                             </View>
 
-                            <TouchableOpacity style={styles.addImageButtonDashed}>
-                                <MaterialIcons name="image" size={18} color="#888" />
-                                <Text style={styles.addImageButtonText}>Add image or icon</Text>
-                            </TouchableOpacity>
+                            {/* Image/Icon preview (if set) */}
+                            {questions[currentQuestionIndex].media ? (
+                                <View style={styles.mediaPreviewRow}>
+                                    {questions[currentQuestionIndex].media.type === 'image' ? (
+                                        <Image source={{ uri: questions[currentQuestionIndex].media.uri }} style={styles.mediaPreviewImage} />
+                                    ) : (
+                                        <View style={[styles.iconPreviewBox, { backgroundColor: questions[currentQuestionIndex].media.iconColor || '#eee' }]}>
+                                            <MaterialCommunityIcons name={questions[currentQuestionIndex].media.iconName || 'image-outline'} size={28} color="#fff" />
+                                        </View>
+                                    )}
+                                    <View style={{ flex: 1, marginLeft: 10 }}>
+                                        <Text style={{ fontWeight: '600' }}>
+                                            {questions[currentQuestionIndex].media.type === 'image' ? 'Image attached' : 'Icon attached'}
+                                        </Text>
+                                        <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                                           
+                                            <TouchableOpacity style={[styles.changeMediaButton, { marginLeft: 8 }]} onPress={removeMediaFromCurrentQuestion}>
+                                                <Text style={[styles.changeMediaButtonText, { color: '#FF6B6B' }]}>Remove</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                </View>
+                            ) : (
+                                <TouchableOpacity style={styles.addImageButtonDashed} onPress={openImageIconAction}>
+                                    <MaterialIcons name="image" size={18} color="#888" />
+                                    <Text style={styles.addImageButtonText}>Add image or icon</Text>
+                                </TouchableOpacity>
+                            )}
 
                             <TextInput
                                 style={styles.descriptionInput}
@@ -1000,7 +1145,7 @@ const CreateNewSurveyScreen = ({ navigation }) => {
 
                 {/* --- BOTTOM ACTIONS --- */}
                 <View style={styles.bottomActionsContainer}>
-                    <TouchableOpacity style={styles.previewButton}>
+                    <TouchableOpacity style={styles.previewButton} onPress={handlePreview}>
                         <MaterialIcons name="visibility" size={20} color="#666" />
                         <Text style={styles.previewButtonText}>Preview Form</Text>
                     </TouchableOpacity>
@@ -1068,6 +1213,72 @@ const CreateNewSurveyScreen = ({ navigation }) => {
                             <Text style={styles.saveButtonText}>Done</Text>
                         </LinearGradient>
                     </TouchableOpacity>
+                </View>
+            </Modal>
+
+            {/* Action Modal: Choose Image / Icon / Remove */}
+            <Modal
+                visible={showImageIconActionModal}
+                animationType="fade"
+                transparent={true}
+                onRequestClose={() => setShowImageIconActionModal(false)}
+            >
+                <View style={styles.actionModalOverlay}>
+                    <View style={styles.actionModal}>
+                        <TouchableOpacity style={styles.actionItem} onPress={pickImageFromLibrary}>
+                            <MaterialIcons name="photo-library" size={22} color="#FF7800" />
+                            <Text style={styles.actionText}>Choose Image</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.actionItem} onPress={openIconPicker}>
+                            <MaterialCommunityIcons name="emoticon-outline" size={22} color="#8B4DFF" />
+                            <Text style={styles.actionText}>Choose Icon</Text>
+                        </TouchableOpacity>
+                        {questions[currentQuestionIndex].media && (
+                            <TouchableOpacity style={styles.actionItem} onPress={removeMediaFromCurrentQuestion}>
+                                <MaterialIcons name="delete-outline" size={22} color="#FF6B6B" />
+                                <Text style={[styles.actionText, { color: '#FF6B6B' }]}>Remove Attachment</Text>
+                            </TouchableOpacity>
+                        )}
+                        <TouchableOpacity style={[styles.actionItem, { marginTop: 8 }]} onPress={() => setShowImageIconActionModal(false)}>
+                            <Text style={[styles.actionText, { color: '#666' }]}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Icon Picker Modal */}
+            <Modal
+                visible={showIconPickerModal}
+                animationType="slide"
+                transparent={false}
+                onRequestClose={() => setShowIconPickerModal(false)}
+            >
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                        <TouchableOpacity onPress={() => setShowIconPickerModal(false)} style={styles.modalCloseButton}>
+                            <MaterialIcons name="arrow-back" size={28} color="#333" />
+                        </TouchableOpacity>
+                        <Text style={styles.modalTitle}>Choose an icon</Text>
+                        <View style={{ width: 28 }} />
+                    </View>
+
+                    <View style={{ paddingHorizontal: 10 }}>
+                        <Text style={{ marginBottom: 12, color: '#666' }}>Tap an icon to select it for this question.</Text>
+                        <View style={styles.iconGrid}>
+                            {ICON_OPTIONS.map((opt) => (
+                                <TouchableOpacity
+                                    key={opt.name}
+                                    style={styles.iconOption}
+                                    onPress={() => setIconForCurrentQuestion(opt.name, opt.color)}
+                                >
+                                    <View style={[styles.iconOptionPreview, { backgroundColor: opt.color }]}>
+                                        <MaterialCommunityIcons name={opt.name} size={26} color="#fff" />
+                                    </View>
+                                    <Text style={styles.iconOptionLabel}>{opt.name.replace(/-outline$/, '')}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
                 </View>
             </Modal>
         </View>
@@ -1740,6 +1951,58 @@ const styles = StyleSheet.create({
         marginLeft: 8,
         color: '#666',
     },
+
+    // media preview styles
+   mediaPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    marginBottom: 12,
+    overflow: 'hidden',       // <- ensures children don't render outside box
+},
+    mediaPreviewImage: {
+        width: 64,
+        height: 64,
+        borderRadius: 8,
+        backgroundColor: '#eee'
+    },
+    iconPreviewBox: {
+        width: 64,
+        height: 64,
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    changeMediaButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,    // reduced horizontal padding
+    minWidth: 72,             // ensure touch target but keep compact
+    height: 36,               // fixed height so buttons stay aligned
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF2E6',
+    borderWidth: 1,
+    borderColor: '#FFD464',
+    flexShrink: 0,            // don't shrink below minWidth
+},
+
+   changeMediaButtonText: {
+    color: '#FF7800',
+    fontWeight: '700',
+    fontSize: 14,
+},
+mediaButtonsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',         // allow wrapping if there's not enough horizontal space
+    marginTop: 8,
+    alignItems: 'center',
+},
     descriptionInput: {
         borderWidth: 1,
         borderColor: '#F0F0F0',
@@ -1819,6 +2082,54 @@ const styles = StyleSheet.create({
         fontSize: 16,
         marginLeft: 10,
     },
+
+    // action modal styles
+    actionModalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.35)',
+        justifyContent: 'flex-end',
+    },
+    actionModal: {
+        backgroundColor: '#fff',
+        padding: 16,
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+    },
+    actionItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+    },
+    actionText: {
+        marginLeft: 12,
+        fontSize: 16,
+        color: '#222'
+    },
+
+    // icon picker grid
+    iconGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between'
+    },
+    iconOption: {
+        width: '30%',
+        marginBottom: 18,
+        alignItems: 'center'
+    },
+    iconOptionPreview: {
+        width: 64,
+        height: 64,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    iconOptionLabel: {
+        marginTop: 8,
+        color: '#666',
+        fontSize: 12,
+        textAlign: 'center'
+    }
 });
 
 export default CreateNewSurveyScreen;
