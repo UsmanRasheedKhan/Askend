@@ -1,5 +1,3 @@
-// app/screens/CreatorDashboardScreen.js
-
 import React, { useState, useEffect } from "react";
 import {
   StyleSheet,
@@ -11,44 +9,64 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useNavigation, useIsFocused } from "@react-navigation/native";
+import { useNavigation, useIsFocused, useRoute } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const CreatorDashboardScreen = () => {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
+  const route = useRoute();
   
   const [draftsCount, setDraftsCount] = useState(0);
-  const [publishedCount, setPublishedCount] = useState(5); // Keeping your existing published count
-  const [finishedCount, setFinishedCount] = useState(2); // Keeping your existing finished count
+  const [publishedCount, setPublishedCount] = useState(0);
+  const [finishedCount, setFinishedCount] = useState(2);
+  const [publishedSurveys, setPublishedSurveys] = useState([]);
 
-  // Load drafts count when screen is focused
+  // Load all counts when screen is focused or refreshed
   useEffect(() => {
-    loadDraftsCount();
-  }, [isFocused]);
+    loadAllData();
+  }, [isFocused, route.params?.refresh]);
 
-  const loadDraftsCount = async () => {
+  const loadAllData = async () => {
     try {
+      // Load drafts count
       const savedDrafts = await AsyncStorage.getItem('surveyDrafts');
       const drafts = savedDrafts ? JSON.parse(savedDrafts) : [];
       setDraftsCount(drafts.length);
+
+      // Load published surveys
+      const savedPublished = await AsyncStorage.getItem('publishedSurveys');
+      const published = savedPublished ? JSON.parse(savedPublished) : [];
+      setPublishedSurveys(published);
+      setPublishedCount(published.length);
+
     } catch (error) {
-      console.error('Error loading drafts count:', error);
-      setDraftsCount(0);
+      console.error('Error loading data:', error);
+      Alert.alert("Error", "Failed to load surveys data");
+    }
+  };
+
+  // Helper function to get color based on plan - Component ke andar
+  const getSurveyColor = (plan) => {
+    switch(plan) {
+      case 'basic': return '#4CAF50';
+      case 'standard': return '#FF9800';
+      case 'premium': return '#E91E63';
+      case 'custom': return '#7C58FF';
+      default: return '#FF7800';
     }
   };
 
   const handleDraftsPress = () => {
-    navigation.navigate('DraftsScreen'); // You'll need to create this screen
+    navigation.navigate('DraftsScreen');
   };
 
   const handlePublishedPress = () => {
     // Navigate to published surveys screen
-    Alert.alert("Published Surveys", "Navigate to published surveys screen");
+    navigation.navigate('PublishedSurveysScreen');
   };
 
   const handleFinishedPress = () => {
-    // Navigate to finished surveys screen
     Alert.alert("Finished Surveys", "Navigate to finished surveys screen");
   };
 
@@ -116,6 +134,34 @@ const CreatorDashboardScreen = () => {
           onPress={handleFinishedPress}
           iconStartColor="#FFD464"
         />
+
+        {/* Recent Published Surveys List */}
+        {publishedSurveys.length > 0 && (
+          <View style={styles.recentSurveysSection}>
+            <Text style={styles.recentTitle}>Recently Published</Text>
+            {publishedSurveys.slice(0, 3).map((survey, index) => (
+              <TouchableOpacity 
+                key={survey.id} 
+                style={styles.surveyItem}
+                onPress={handlePublishedPress}
+              >
+                <View style={[
+                  styles.surveyIcon, 
+                  { backgroundColor: getSurveyColor(survey.plan) }
+                ]}>
+                  <MaterialCommunityIcons name="chart-bar" size={20} color="#fff" />
+                </View>
+                <View style={styles.surveyInfo}>
+                  <Text style={styles.surveyTitle}>{survey.title}</Text>
+                  <Text style={styles.surveyMeta}>
+                    {survey.plan} • {survey.responses} responses • Rs {survey.price}
+                  </Text>
+                </View>
+                <MaterialIcons name="chevron-right" size={24} color="#ccc" />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* Floating Action Button (FAB) MOVED INSIDE SCROLLVIEW */}
         <TouchableOpacity
@@ -266,6 +312,52 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#333",
     marginLeft: 0,
+  },
+
+  // --- Recent Surveys Section ---
+  recentSurveysSection: {
+    marginTop: 30,
+    marginBottom: 20,
+  },
+  recentTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#333",
+    marginBottom: 15,
+  },
+  surveyItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 10,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  surveyIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 15,
+  },
+  surveyInfo: {
+    flex: 1,
+  },
+  surveyTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 4,
+  },
+  surveyMeta: {
+    fontSize: 12,
+    color: "#666",
   },
 
   // --- Card Styles ---
