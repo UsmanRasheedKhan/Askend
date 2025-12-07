@@ -30,14 +30,13 @@ const PublishedSurveysScreen = () => {
     }
   }, [isFocused]);
 
-  // ✅ FIXED: Load ONLY published surveys
+  // ✅ Load ONLY published surveys
   const loadPublishedSurveys = async () => {
     try {
       setRefreshing(true);
       
       console.log('Fetching ONLY PUBLISHED surveys from Supabase...');
       
-      // ✅ IMPORTANT: Only fetch surveys with status='published'
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/surveys?select=*&status=eq.published&order=created_at.desc`, 
         {
@@ -61,12 +60,6 @@ const PublishedSurveysScreen = () => {
       const surveys = await response.json();
       console.log('✅ PUBLISHED Surveys fetched:', surveys.length);
       
-      // Log each survey for debugging
-      surveys.forEach(survey => {
-        console.log(`📋 Survey: "${survey.title}", Status: ${survey.status}, Draft: ${survey.is_draft}`);
-      });
-      
-      // Transform data for display
       const transformedSurveys = surveys.map(survey => ({
         id: survey.id.toString(),
         title: survey.title || "Untitled Survey",
@@ -83,7 +76,10 @@ const PublishedSurveysScreen = () => {
         createdAt: survey.created_at || new Date().toISOString(),
         updatedAt: survey.updated_at || new Date().toISOString(),
         status: survey.status || 'published',
-        isDraft: survey.is_draft || false
+        isDraft: survey.is_draft || false,
+        // Add these for preview compatibility
+        formHeading: survey.title || "Untitled Survey",
+        formDescription: survey.description || "No description provided"
       }));
       
       setPublishedSurveys(transformedSurveys);
@@ -149,7 +145,6 @@ const PublishedSurveysScreen = () => {
     }
   };
 
-  // ✅ FIX: Remove "Plan" repetition
   const getDisplayPlanName = (planName) => {
     if (!planName) return 'Basic Plan';
     
@@ -171,6 +166,30 @@ const PublishedSurveysScreen = () => {
     if (percentage >= 70) return '#FF9800';
     if (percentage >= 50) return '#FFC107';
     return '#F44336';
+  };
+
+  // ✅ NEW FUNCTION: Handle card click to view survey
+  const handleViewSurvey = (survey) => {
+    console.log('Viewing published survey:', survey.title);
+    
+    // Prepare data for PreviewScreen
+    const previewData = {
+      id: survey.id,
+      draftId: survey.id, // Using survey id as draftId for compatibility
+      formHeading: survey.title,
+      formDescription: survey.description,
+      questions: survey.questions || [],
+      // Add other fields if needed for PreviewScreen
+      category: survey.category,
+      plan: survey.plan,
+      isPublicForm: survey.isPublicForm
+    };
+    
+    // Navigate to PreviewScreen
+    // Replace the navigation line in handleViewSurvey function:
+navigation.navigate('ViewPublishedSurveyScreen', { 
+  survey: survey
+});
   };
 
   const handleDeleteSurvey = (survey) => {
@@ -217,14 +236,15 @@ const PublishedSurveysScreen = () => {
     }
   };
 
+  // ✅ UPDATED: Finish Survey Function
   const handleFinishSurvey = async (survey) => {
     Alert.alert(
       "Finish Survey",
-      `Are you sure you want to mark "${survey.title}" as finished? This will move it to Finished Surveys.`,
+      `Are you sure you want to mark "${survey.title}" as finished?\n\n✅ Survey will move to Finished Surveys\n✅ Finished count will update in Dashboard`,
       [
         { text: "Cancel", style: "cancel" },
         { 
-          text: "Finish", 
+          text: "Finish Survey", 
           style: "default",
           onPress: () => confirmFinishSurvey(survey)
         }
@@ -234,6 +254,9 @@ const PublishedSurveysScreen = () => {
 
   const confirmFinishSurvey = async (survey) => {
     try {
+      console.log('Finishing survey:', survey.id, survey.title);
+      
+      // ✅ UPDATE survey status to 'finished' in Supabase
       const updateResponse = await fetch(
         `${SUPABASE_URL}/rest/v1/surveys?id=eq.${survey.id}`,
         {
@@ -246,26 +269,53 @@ const PublishedSurveysScreen = () => {
           },
           body: JSON.stringify({
             status: 'finished',
+            is_draft: false,
             updated_at: new Date().toISOString()
           })
         }
       );
 
+      console.log('Update response status:', updateResponse.status);
+      
       if (!updateResponse.ok) {
+        const errorText = await updateResponse.text();
+        console.error('Error finishing survey:', errorText);
         throw new Error('Failed to finish survey in database');
       }
 
+      // ✅ Remove from local state
       const updatedSurveys = publishedSurveys.filter(s => s.id !== survey.id);
       setPublishedSurveys(updatedSurveys);
       
+      // ✅ SUCCESS - Show options
       Alert.alert(
-        "Survey Finished", 
-        `"${survey.title}" has been moved to Finished Surveys.`,
+        "Survey Finished Successfully! ✅", 
+        `"${survey.title}" has been moved to Finished Surveys.\n\n✅ Removed from Published Surveys\n✅ Added to Finished Surveys\n✅ Dashboard counts updated automatically`,
         [
           { 
-            text: "OK",
+            text: "Go to Dashboard",
             onPress: () => {
-              navigation.navigate('CreatorDashboard', { refresh: true });
+              // Navigate to dashboard with refresh flag
+              navigation.reset({
+                index: 0,
+                routes: [
+                  { 
+                    name: 'CreatorDashboard', 
+                    params: { 
+                      refresh: true,
+                      showMessage: `"${survey.title}" marked as finished!`
+                    } 
+                  }
+                ],
+              });
+            }
+          },
+          {
+            text: "Stay Here",
+            style: 'cancel',
+            onPress: () => {
+              // Refresh current screen
+              loadPublishedSurveys();
             }
           }
         ]
@@ -273,7 +323,10 @@ const PublishedSurveysScreen = () => {
       
     } catch (error) {
       console.error('Error finishing survey:', error);
-      Alert.alert("Error", "Failed to finish survey.");
+      Alert.alert(
+        "Error Finishing Survey", 
+        "Failed to finish survey. Please check your internet connection and try again."
+      );
     }
   };
 
@@ -330,171 +383,177 @@ const PublishedSurveysScreen = () => {
     const isCompleted = progressPercentage >= 100;
 
     return (
-      <View style={styles.surveyCard}>
-        <LinearGradient
-          colors={['#FFFFFF', '#FFF8E1']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={styles.cardGradient}
-        >
-          <View style={styles.cardHeader}>
-            <View style={styles.titleSection}>
-              <View style={styles.titleRow}>
-                <View style={[styles.surveyIcon, { backgroundColor: getPlanColor(survey.plan) }]}>
-                  <MaterialCommunityIcons 
-                    name={getPlanIcon(survey.plan)} 
-                    size={20} 
-                    color="#fff" 
-                  />
+      <TouchableOpacity 
+        style={styles.surveyCardTouchable}
+        onPress={() => handleViewSurvey(survey)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.surveyCard}>
+          <LinearGradient
+            colors={['#FFFFFF', '#FFF8E1']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.cardGradient}
+          >
+            <View style={styles.cardHeader}>
+              <View style={styles.titleSection}>
+                <View style={styles.titleRow}>
+                  <View style={[styles.surveyIcon, { backgroundColor: getPlanColor(survey.plan) }]}>
+                    <MaterialCommunityIcons 
+                      name={getPlanIcon(survey.plan)} 
+                      size={20} 
+                      color="#fff" 
+                    />
+                  </View>
+                  <Text style={styles.surveyTitle} numberOfLines={2}>
+                    {survey.title}
+                  </Text>
                 </View>
-                <Text style={styles.surveyTitle} numberOfLines={2}>
-                  {survey.title}
+                
+                <View style={[
+                  styles.statusBadge,
+                  isCompleted ? styles.completedBadge : styles.liveBadge
+                ]}>
+                  <MaterialCommunityIcons 
+                    name={isCompleted ? "check-circle" : "check-circle"} 
+                    size={14} 
+                    color={isCompleted ? "#fff" : "#4CAF50"} 
+                  />
+                  <Text style={[
+                    styles.statusText,
+                    isCompleted ? styles.completedText : styles.liveText
+                  ]}>
+                    {isCompleted ? 'COMPLETED' : 'LIVE'}
+                  </Text>
+                </View>
+              </View>
+              
+              <TouchableOpacity 
+                style={styles.menuButton}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setSelectedSurvey(selectedSurvey?.id === survey.id ? null : survey);
+                }}
+              >
+                <MaterialIcons name="more-vert" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.surveyDescription} numberOfLines={2}>
+              {survey.description}
+            </Text>
+
+            <View style={styles.statsSection}>
+              <View style={styles.statItem}>
+                <MaterialCommunityIcons name="chart-bar" size={16} color="#666" />
+                <Text style={styles.statText}>
+                  {getDisplayPlanName(survey.planName)}
                 </Text>
               </View>
               
-              <View style={[
-                styles.statusBadge,
-                isCompleted ? styles.completedBadge : styles.liveBadge
-              ]}>
+              <View style={styles.statItem}>
+                <MaterialIcons name="category" size={16} color="#666" />
+                <Text style={styles.statText}>
+                  {survey.category}
+                </Text>
+              </View>
+              
+              <View style={styles.statItem}>
                 <MaterialCommunityIcons 
-                  name={isCompleted ? "check-circle" : "check-circle"} 
-                  size={14} 
-                  color={isCompleted ? "#fff" : "#4CAF50"} 
+                  name={survey.isPublicForm ? "earth" : "lock"} 
+                  size={16} 
+                  color="#666" 
                 />
-                <Text style={[
-                  styles.statusText,
-                  isCompleted ? styles.completedText : styles.liveText
-                ]}>
-                  {isCompleted ? 'COMPLETED' : 'LIVE'}
+                <Text style={styles.statText}>
+                  {survey.isPublicForm ? "Public" : "Private"}
                 </Text>
               </View>
             </View>
-            
-            <TouchableOpacity 
-              style={styles.menuButton}
-              onPress={(e) => {
-                e.stopPropagation();
-                setSelectedSurvey(selectedSurvey?.id === survey.id ? null : survey);
-              }}
-            >
-              <MaterialIcons name="more-vert" size={24} color="#666" />
-            </TouchableOpacity>
-          </View>
 
-          <Text style={styles.surveyDescription} numberOfLines={2}>
-            {survey.description}
-          </Text>
+            <View style={styles.progressSection}>
+              <View style={styles.progressHeader}>
+                <Text style={styles.progressTitle}>
+                  {isCompleted ? '✅ Completed' : 'Responses Progress'}
+                </Text>
+                <Text style={[
+                  styles.progressPercentage,
+                  isCompleted && styles.completedPercentage
+                ]}>
+                  {progressPercentage.toFixed(1)}%
+                </Text>
+              </View>
+              
+              <View style={styles.progressBar}>
+                <View 
+                  style={[
+                    styles.progressFill,
+                    { 
+                      width: `${Math.min(progressPercentage, 100)}%`,
+                      backgroundColor: progressColor
+                    }
+                  ]}
+                />
+              </View>
+              
+              <View style={styles.progressStats}>
+                <Text style={styles.progressCount}>
+                  {survey.responsesCollected} collected
+                </Text>
+                <Text style={styles.progressTotal}>
+                  of {survey.totalResponses} total
+                </Text>
+              </View>
+            </View>
 
-          <View style={styles.statsSection}>
-            <View style={styles.statItem}>
-              <MaterialCommunityIcons name="chart-bar" size={16} color="#666" />
-              <Text style={styles.statText}>
-                {getDisplayPlanName(survey.planName)}
+            <View style={styles.cardFooter}>
+              <Text style={styles.dateText}>
+                Published {formatDate(survey.createdAt)}
               </Text>
-            </View>
-            
-            <View style={styles.statItem}>
-              <MaterialIcons name="category" size={16} color="#666" />
-              <Text style={styles.statText}>
-                {survey.category}
-              </Text>
-            </View>
-            
-            <View style={styles.statItem}>
-              <MaterialCommunityIcons 
-                name={survey.isPublicForm ? "earth" : "lock"} 
-                size={16} 
-                color="#666" 
-              />
-              <Text style={styles.statText}>
-                {survey.isPublicForm ? "Public" : "Private"}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.progressSection}>
-            <View style={styles.progressHeader}>
-              <Text style={styles.progressTitle}>
-                {isCompleted ? '✅ Completed' : 'Responses Progress'}
-              </Text>
-              <Text style={[
-                styles.progressPercentage,
-                isCompleted && styles.completedPercentage
-              ]}>
-                {progressPercentage.toFixed(1)}%
-              </Text>
-            </View>
-            
-            <View style={styles.progressBar}>
-              <View 
-                style={[
-                  styles.progressFill,
-                  { 
-                    width: `${Math.min(progressPercentage, 100)}%`,
-                    backgroundColor: progressColor
-                  }
-                ]}
-              />
-            </View>
-            
-            <View style={styles.progressStats}>
-              <Text style={styles.progressCount}>
-                {survey.responsesCollected} collected
-              </Text>
-              <Text style={styles.progressTotal}>
-                of {survey.totalResponses} total
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.cardFooter}>
-            <Text style={styles.dateText}>
-              Published {formatDate(survey.createdAt)}
-            </Text>
-            
-            <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={styles.analyticsButton}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  handleViewAnalytics(survey);
-                }}
-              >
-                <MaterialIcons name="analytics" size={18} color="#fff" />
-                <Text style={styles.analyticsButtonText}>View Analytics</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {selectedSurvey?.id === survey.id && (
-            <View style={styles.dropdownMenu}>
-              {!isCompleted && (
+              
+              <View style={styles.actionButtons}>
                 <TouchableOpacity 
-                  style={styles.menuItem}
+                  style={styles.analyticsButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleViewAnalytics(survey);
+                  }}
+                >
+                  <MaterialIcons name="analytics" size={18} color="#fff" />
+                  <Text style={styles.analyticsButtonText}>View Analytics</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {selectedSurvey?.id === survey.id && (
+              <View style={styles.dropdownMenu}>
+                {!isCompleted && (
+                  <TouchableOpacity 
+                    style={styles.menuItem}
+                    onPress={() => {
+                      handleFinishSurvey(survey);
+                      setSelectedSurvey(null);
+                    }}
+                  >
+                    <MaterialCommunityIcons name="check-circle-outline" size={20} color="#4CAF50" />
+                    <Text style={[styles.menuItemText, { color: '#4CAF50' }]}>Finish Survey</Text>
+                  </TouchableOpacity>
+                )}
+                
+                <TouchableOpacity 
+                  style={[styles.menuItem, styles.deleteMenuItem]}
                   onPress={() => {
-                    handleFinishSurvey(survey);
+                    handleDeleteSurvey(survey);
                     setSelectedSurvey(null);
                   }}
                 >
-                  <MaterialCommunityIcons name="check-circle-outline" size={20} color="#4CAF50" />
-                  <Text style={[styles.menuItemText, { color: '#4CAF50' }]}>Finish Survey</Text>
+                  <MaterialIcons name="delete-outline" size={20} color="#FF6B6B" />
+                  <Text style={[styles.menuItemText, styles.deleteMenuText]}>Delete Survey</Text>
                 </TouchableOpacity>
-              )}
-              
-              <TouchableOpacity 
-                style={[styles.menuItem, styles.deleteMenuItem]}
-                onPress={() => {
-                  handleDeleteSurvey(survey);
-                  setSelectedSurvey(null);
-                }}
-              >
-                <MaterialIcons name="delete-outline" size={20} color="#FF6B6B" />
-                <Text style={[styles.menuItemText, styles.deleteMenuText]}>Delete Survey</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </LinearGradient>
-      </View>
+              </View>
+            )}
+          </LinearGradient>
+        </View>
+      </TouchableOpacity>
     );
   };
 
@@ -762,8 +821,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 10,
   },
-  surveyCard: {
+  // ✅ NEW: Added Touchable wrapper for the card
+  surveyCardTouchable: {
     marginBottom: 15,
+  },
+  surveyCard: {
     borderRadius: 15,
     backgroundColor: 'transparent',
     overflow: 'hidden',

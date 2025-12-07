@@ -21,11 +21,20 @@ const CreatorDashboardScreen = () => {
   const [publishedCount, setPublishedCount] = useState(0);
   const [finishedCount, setFinishedCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
     loadAllData();
-  }, [isFocused, route.params?.refresh]);
+    
+    // Check for messages from other screens
+    if (route.params?.showMessage) {
+      setMessage(route.params.showMessage);
+      // Clear message after 3 seconds
+      setTimeout(() => setMessage(''), 3000);
+    }
+  }, [isFocused, route.params?.refresh, route.params?.showMessage]);
 
+  // ✅ UPDATED: Load all counts including finished surveys
   const loadAllData = async () => {
     try {
       setLoading(true);
@@ -60,11 +69,11 @@ const CreatorDashboardScreen = () => {
         console.log('📢 Published count:', publishedCount || 0);
       }
 
-      // ✅ FINISHED COUNT
+      // ✅ FINISHED COUNT - IMPORTANT: status='finished'
       const { count: finishedCount, error: finishedError } = await supabase
         .from('surveys')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'finished')
+        .eq('status', 'finished')  // ✅ CORRECT FILTER
         .eq('user_id', 'user_001');
       
       if (finishedError) {
@@ -72,6 +81,29 @@ const CreatorDashboardScreen = () => {
       } else {
         setFinishedCount(finishedCount || 0);
         console.log('✅ Finished count:', finishedCount || 0);
+      }
+
+      // ✅ DEBUG: Check all surveys and their status
+      const { data: allSurveys, error: allError } = await supabase
+        .from('surveys')
+        .select('id, title, status, is_draft, created_at')
+        .eq('user_id', 'user_001')
+        .order('created_at', { ascending: false });
+      
+      if (!allError && allSurveys) {
+        console.log('🔎 ALL SURVEYS IN DATABASE:');
+        allSurveys.forEach(survey => {
+          console.log(`  - "${survey.title}" (ID: ${survey.id}): status="${survey.status}", draft=${survey.is_draft}`);
+        });
+        
+        // Check specifically for finished surveys
+        const finishedSurveys = allSurveys.filter(s => s.status === 'finished');
+        console.log('🎯 Finished surveys found:', finishedSurveys.length);
+        if (finishedSurveys.length > 0) {
+          finishedSurveys.forEach(s => {
+            console.log(`   • "${s.title}" (ID: ${s.id}) - Created: ${s.created_at}`);
+          });
+        }
       }
 
     } catch (error) {
@@ -90,12 +122,24 @@ const CreatorDashboardScreen = () => {
     navigation.navigate('PublishedSurveysScreen');
   };
 
+  // ✅ UPDATED: Finished Press Handler - Abhi direct navigation karega
   const handleFinishedPress = () => {
-    Alert.alert(
-      "Finished Surveys",
-      "This feature is coming soon!",
-      [{ text: "OK" }]
-    );
+    if (finishedCount > 0) {
+      // Abhi directly FinishedSurveysScreen pe navigate karo
+      navigation.navigate('FinishedSurveysScreen');
+    } else {
+      Alert.alert(
+        "No Finished Surveys",
+        "You haven't finished any surveys yet.\n\nTo finish a survey:\n1. Go to Published Surveys\n2. Click ••• on a survey\n3. Select 'Finish Survey'\n\nIt will then appear here!",
+        [
+          { 
+            text: "Go to Published", 
+            onPress: () => navigation.navigate('PublishedSurveysScreen')
+          },
+          { text: "OK", style: "cancel" }
+        ]
+      );
+    }
   };
 
   return (
@@ -124,11 +168,21 @@ const CreatorDashboardScreen = () => {
         </View>
       </LinearGradient>
 
+      {/* Success Message Banner */}
+      {message ? (
+        <View style={styles.messageBanner}>
+          <MaterialCommunityIcons name="check-circle" size={20} color="#4CAF50" />
+          <Text style={styles.messageText}>{message}</Text>
+        </View>
+      ) : null}
+
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Surveys</Text>
+          {/* ✅ REMOVED: Refresh button removed */}
         </View>
 
+        {/* Drafts Card */}
         <SurveyStatusCard
           iconName="pencil-outline"
           title="Drafts"
@@ -137,6 +191,7 @@ const CreatorDashboardScreen = () => {
           onPress={handleDraftsPress}
         />
 
+        {/* Published Card */}
         <SurveyStatusCard
           iconName="send"
           title="Published"
@@ -145,6 +200,7 @@ const CreatorDashboardScreen = () => {
           onPress={handlePublishedPress}
         />
 
+        {/* ✅ UPDATED: Finished Card with proper count */}
         <SurveyStatusCard
           iconName="check-circle-outline"
           title="Finished"
@@ -153,11 +209,12 @@ const CreatorDashboardScreen = () => {
           onPress={handleFinishedPress}
         />
 
-        {/* ✅ "Recently Published" section REMOVED */}
+        {/* ✅ REMOVED: Info/Tip box removed */}
         
         {/* Add spacing */}
         <View style={styles.extraSpacing} />
 
+        {/* Create New Survey Button */}
         <TouchableOpacity
           style={styles.fabButtonInScroll}
           onPress={() => navigation.navigate("CreateNewSurvey")}
@@ -273,6 +330,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "rgba(255, 255, 255, 0.8)",
   },
+  messageBanner: {
+    backgroundColor: '#E8F5E9',
+    padding: 12,
+    marginHorizontal: 20,
+    marginTop: -15,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  messageText: {
+    color: '#2E7D32',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
   scrollContent: {
     paddingHorizontal: 20,
     paddingBottom: 100,
@@ -281,6 +359,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 5,
     marginTop: 10,
   },
@@ -288,10 +367,11 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "bold",
     color: "#333",
-    marginLeft: 0,
   },
+  // ✅ REMOVED: refreshButton styles
+  // ✅ REMOVED: infoBox, infoText, infoBold styles
   extraSpacing: {
-    height: 30, // Add some spacing
+    height: 20,
   },
   cardContainer: {
     marginVertical: 15,
