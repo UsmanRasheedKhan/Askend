@@ -15,8 +15,6 @@ import {
 import { MaterialIcons, MaterialCommunityIcons, FontAwesome } from '@expo/vector-icons';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
-// Note: Ensure ChoosePlanScreen is imported if in the same file/structure, 
-// otherwise we rely on the navigation stack to know the route name.
 
 // --- Small visual helpers ---
 const RadioVisual = ({ selected }) => (
@@ -35,7 +33,7 @@ const CheckboxVisual = ({ checked }) => (
     )
 );
 
-// Star component (For Question 4)
+// Star component
 const StarRatingVisual = ({ maxStars = 5, initialRating = 3.5 }) => {
     const stars = [];
     const fullStars = Math.floor(initialRating);
@@ -75,7 +73,7 @@ const StarRatingVisual = ({ maxStars = 5, initialRating = 3.5 }) => {
     );
 };
 
-// Linear Scale / Slider Visual (Q6)
+// Linear Scale / Slider Visual
 const LinearScaleVisual = ({ min = 1, max = 5, initialValue = 3 }) => {
     const scale = Array.from({ length: max - min + 1 }, (_, i) => min + i);
     return (
@@ -103,27 +101,38 @@ const LinearScaleVisual = ({ min = 1, max = 5, initialValue = 3 }) => {
 
 // --- Question Rendering Component (Dynamic) ---
 const renderQuestion = (question, index) => {
+    if (!question) return null;
+    
     const questionNumber = `Q${index + 1}`;
-    const { questionType, questionText, options, isRequired } = question;
+    const { questionType, questionText, options, isRequired, media } = question || {};
 
-    // Default options (if mock data is missing)
-    let actualOptions = options;
-    if (index === 0 && !options) actualOptions = ["Excellent", "Good", "Average", "Poor"];
-    if (index === 1 && !options) actualOptions = ["Mobile App", "Website", "Customer support", "Email notifications"];
-    if (index === 7 && !options) actualOptions = ["Option 1", "Option 2", "Option 3"]; 
+    let actualOptions = [];
+    if (options) {
+        if (Array.isArray(options)) {
+            actualOptions = options;
+        } else if (typeof options === 'object') {
+            actualOptions = Object.values(options);
+        }
+    }
+    
+    if (!actualOptions || actualOptions.length === 0) {
+        if (questionType === 'multiple_choice' || questionType === 'checkboxes' || questionType === 'dropdown') {
+            actualOptions = ["Option 1", "Option 2", "Option 3"];
+        }
+    }
 
-    const mediaNode = question.media ? (
+    const mediaNode = media ? (
         <View style={styles.mediaContainer}>
-            {question.media.type === 'image' ? (
+            {media.type === 'image' ? (
                 <Image
-                    source={{ uri: question.media.uri }}
+                    source={{ uri: media.uri }}
                     style={styles.mediaImage}
                     resizeMode="cover"
                 />
             ) : (
-                <View style={[styles.mediaIcon, { backgroundColor: question.media.iconColor || '#FFD464' }]}>
+                <View style={[styles.mediaIcon, { backgroundColor: media.iconColor || '#FFD464' }]}>
                     <MaterialCommunityIcons
-                        name={question.media.iconName || 'image-outline'}
+                        name={media.iconName || 'image-outline'}
                         size={28}
                         color="#fff"
                     />
@@ -143,8 +152,8 @@ const renderQuestion = (question, index) => {
                 <Text style={styles.questionNumberText}>{questionNumber}</Text>
             </LinearGradient>
             <View style={styles.questionHeaderText}>
-                <Text style={styles.questionText}>{questionText || `Question ${index + 1} Title`}</Text>
-                {question.isRequired && <Text style={styles.requiredMarker}>*</Text>} 
+                <Text style={styles.questionText}>{questionText || `Question ${index + 1}`}</Text>
+                {isRequired && <Text style={styles.requiredMarker}>*</Text>} 
             </View>
         </View>
     );
@@ -296,13 +305,15 @@ const renderQuestion = (question, index) => {
 
         default:
             content = (
-                <View>
-                    <Text style={styles.unsupportedText}>
-                        Unsupported question type: {questionType}
+                <View style={styles.fallbackContainer}>
+                    <Text style={styles.fallbackText}>
+                        Question type: {questionType || 'Not specified'}
                     </Text>
-                    <Text style={styles.debugText}>
-                        Available options: {JSON.stringify(actualOptions)}
-                    </Text>
+                    {actualOptions.length > 0 && (
+                        <Text style={styles.debugText}>
+                            Options: {actualOptions.join(', ')}
+                        </Text>
+                    )}
                 </View>
             );
             break;
@@ -317,63 +328,55 @@ const renderQuestion = (question, index) => {
     );
 };
 
-// --- Placeholder/Mock Data with CORRECT question types ---
-const mockFormData = {
-    formHeading: "Customer Experience Survey",
-    formDescription: "Help us improve our service by gathering your honest experiences. Your feedback is invaluable and will help shape our future improvements.",
-    isPublicForm: true,
-    questions: [
-        { id: 'q1', questionType: 'multiple_choice', questionText: 'How would you rate our overall service?', isRequired: false, options: ['Excellent', 'Good', 'Average', 'Poor'] },
-        { id: 'q2', questionType: 'checkboxes', questionText: 'Which features do you use most? (Select all that apply)', isRequired: false, options: ['Mobile App', 'Website', 'Customer support', 'Email notifications'] },
-        { id: 'q3', questionType: 'long_answer', questionText: 'What could we improve?', isRequired: false, placeholder: "Share your thoughts and suggestions..." },
-        { id: 'q4', questionType: 'rating', questionText: 'How likely are you to recommend us?', isRequired: false },
-        { id: 'q5', questionType: 'date', questionText: 'When did you first use our service?', isRequired: false },
-        
-        { id: 'q6', questionType: 'linear_scale', questionText: 'How satisfied are you with the feature?', isRequired: true, min: 1, max: 5 },
-        { id: 'q7', questionType: 'short_answer', questionText: 'Most fave celeb?', isRequired: true, placeholder: "Type name here..." }, 
-        { id: 'q8', questionType: 'dropdown', questionText: 'Select your preferred location.', isRequired: true, options: ["North", "South", "East", "West"] }, 
-        
-        { id: 'q9', questionType: 'file_upload', questionText: 'Upload a picture of the product.', isRequired: false },
-        { id: 'q10', questionType: 'phone', questionText: 'What is your contact number?', isRequired: true }, 
-        { id: 'q11', questionType: 'email', questionText: 'Enter your email address.', isRequired: true }, 
-        { id: 'q12', questionType: 'time', questionText: 'What time did the incident occur?', isRequired: false }, 
-    ]
-};
-
 // --- MAIN PREVIEW SCREEN COMPONENT ---
 const PreviewScreen = ({ navigation, route }) => {
-    const formData = route.params?.formData || mockFormData;
+    const formData = route.params?.formData || {};
 
-    // DEBUG: Log the incoming data to see question types
+    // ✅ FIX: Safe extraction with defaults
+    const formHeading = formData?.formHeading || "Untitled Survey";
+    const formDescription = formData?.formDescription || "No description provided";
+    
+    // ✅ FIX: Ensure questions is always an array
+    const questions = Array.isArray(formData?.questions) ? formData.questions : [];
+    
+    // ✅ Get draft ID from formData
+    const draftId = formData.id || formData.draftId;
+
+    // Debug
     React.useEffect(() => {
-        if (route.params?.formData) {
-            console.log('Received form data:', JSON.stringify(route.params.formData, null, 2));
+        if (formData) {
+            console.log('Preview screen received form data:', formData);
+            console.log('Draft ID:', draftId);
+            console.log('Questions count:', questions.length);
         }
-    }, [route.params]);
+    }, [formData]);
 
-    if (!formData || !formData.questions) {
+    if (!formData || Object.keys(formData).length === 0) {
         return (
             <SafeAreaView style={[styles.safeArea, { justifyContent: 'center', alignItems: 'center' }]}>
-                <Text style={{ fontSize: 18, color: '#666' }}>Error: No form data found.</Text>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.goBackButton}>
-                    <Text style={{ color: '#fff', fontWeight: 'bold' }}>Go Back to Creator</Text>
+                <MaterialCommunityIcons name="alert-circle-outline" size={50} color="#FF7800" />
+                <Text style={{ fontSize: 18, color: '#666', marginTop: 20 }}>No survey data found</Text>
+                <TouchableOpacity 
+                    onPress={() => navigation.goBack()} 
+                    style={styles.goBackButton}
+                >
+                    <Text style={{ color: '#fff', fontWeight: 'bold' }}>Go Back</Text>
                 </TouchableOpacity>
             </SafeAreaView>
         );
     }
 
-    const { formHeading, formDescription, questions = [] } = formData;
-
     const handleEditSurvey = () => {
-        Alert.alert("Edit Survey", "Returning to the creation screen for editing (Simulated).");
         navigation.goBack();
     };
 
-    // ✅ UPDATED: Navigation to ChoosePlanScreen
     const handlePublishSurvey = () => {
-        // Navigate to the 'ChoosePlanScreen' route, passing the survey data if needed
+        console.log('Navigating to ChoosePlan with draftId:', draftId);
+        
+        // ✅ FIX: Pass draftId correctly
         navigation.navigate('ChoosePlanScreen', { 
-            surveyId: formData.id, 
+            draftId: draftId,  // ✅ CORRECT: Pass draftId
+            formData: formData,  // ✅ Pass complete form data
             surveyTitle: formHeading 
         });
     };
@@ -385,7 +388,7 @@ const PreviewScreen = ({ navigation, route }) => {
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
                 <View style={styles.container}>
-                    {/* Fixed Top Header (The yellow bar at the top) */}
+                    {/* Fixed Top Header */}
                     <View style={styles.fixedHeader}>
                         <View style={{ flexDirection: 'column' }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -426,20 +429,20 @@ const PreviewScreen = ({ navigation, route }) => {
                                     <MaterialCommunityIcons name="clipboard-text-outline" size={28} color="#fff" />
                                 </View>
                                 <View style={{ flex: 1, marginLeft: 12 }}>
-                                    {/* --- Form Title with Gradient --- */}
+                                    {/* Form Title with Gradient */}
                                     <MaskedView
-                                        maskElement={<Text style={styles.formTitleMask}>{formHeading || "Survey Heading"}</Text>}
+                                        maskElement={<Text style={styles.formTitleMask}>{formHeading}</Text>}
                                     >
                                         <LinearGradient
                                             colors={['#374151', '#693B32', '#92400E']}
                                             start={{ x: 0, y: 0 }}
                                             end={{ x: 1, y: 0 }}
                                         >
-                                            <Text style={[styles.formTitle, { opacity: 0 }]}>{formHeading || "Survey Heading"}</Text>
+                                            <Text style={[styles.formTitle, { opacity: 0 }]}>{formHeading}</Text>
                                         </LinearGradient>
                                     </MaskedView>
-                                    {/* ------------------------------------------- */}
-                                    <Text style={styles.formDescription}>{formDescription || "Survey Description..."}</Text>
+                                    {/* Description */}
+                                    <Text style={styles.formDescription}>{formDescription}</Text>
                                 </View>
                                 <View style={styles.questionBadge}>
                                     <Text style={styles.questionBadgeText}>{questions.length} questions</Text>
@@ -448,11 +451,18 @@ const PreviewScreen = ({ navigation, route }) => {
                         </View>
 
                         {/* Questions Cards */}
-                        {questions.map((q, i) => renderQuestion(q, i))}
+                        {questions.length > 0 ? (
+                            questions.map((question, index) => renderQuestion(question, index))
+                        ) : (
+                            <View style={styles.noQuestionsContainer}>
+                                <MaterialCommunityIcons name="help-circle-outline" size={40} color="#FFD464" />
+                                <Text style={styles.noQuestionsText}>No questions added yet</Text>
+                            </View>
+                        )}
 
                     </ScrollView>
 
-                    {/* Preview Actions (The fixed bottom buttons) */}
+                    {/* Preview Actions (Fixed bottom buttons) */}
                     <View style={styles.previewActions}>
                         <TouchableOpacity style={styles.editButton} onPress={handleEditSurvey}>
                             <MaterialIcons name="edit" size={18} color="#FF7E1D" />
@@ -472,7 +482,7 @@ const PreviewScreen = ({ navigation, route }) => {
                         </LinearGradient>
                     </View>
 
-                    {/* The message now sits below the fixed button container */}
+                    {/* Bottom message */}
                     <View style={styles.bottomMessageContainer}>
                         <Text style={styles.publishSuccessMessage}>
                             Ready to go live! Your survey looks amazing!
@@ -492,7 +502,7 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
     },
-    // --- Fixed Top Header (The yellow bar) ---
+    // --- Fixed Top Header ---
     fixedHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -550,9 +560,8 @@ const styles = StyleSheet.create({
 
     // --- Form Header Card ---
     formHeader: {
-        marginTop: 0, // Adjusted as padding is in scrollContent
+        marginTop: 0,
         marginBottom: 16,
-        
     },
     formHeaderInner: {
         flexDirection: 'row',
@@ -569,7 +578,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFF8F1',
         borderColor: '#000',
         borderWidth: 0.001,
-        
     },
     formIconBox: {
         width: 48,
@@ -720,33 +728,49 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
 
-    // --- Long/Short Answer (Q3, Q7) ---
+    // --- Media Styles ---
+    mediaContainer: {
+        marginBottom: 12,
+        alignItems: 'center',
+    },
+    mediaImage: {
+        width: 200,
+        height: 120,
+        borderRadius: 8,
+    },
+    mediaIcon: {
+        width: 60,
+        height: 60,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+
+    // --- Long/Short Answer ---
     longTextInputContainer: {
         borderRadius: 8,
         borderWidth: 1,
         borderColor: '#F0EDEA',
         backgroundColor: '#FBFBFB',
-        paddingHorizontal: 12, 
+        paddingHorizontal: 12,
         marginTop: 8,
     },
-    // Style for Long Answer (multi-line)
     longAnswerHeight: {
         minHeight: 100,
         paddingVertical: 10,
     },
-    // Style for Short Answer (single line)
     shortAnswerHeight: {
-        height: 48, 
-        justifyContent: 'center', 
+        height: 48,
+        justifyContent: 'center',
     },
     longTextInput: {
-        flex: 1, 
+        flex: 1,
         fontSize: 15,
         color: '#333',
         padding: 0,
     },
 
-    // --- Input with Icon (Phone, Email) ---
+    // --- Input with Icon ---
     iconTextInputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -768,7 +792,7 @@ const styles = StyleSheet.create({
         paddingVertical: 0,
     },
 
-    // --- Rating (Q4) ---
+    // --- Rating ---
     ratingContainer: {
         marginTop: 10,
     },
@@ -783,7 +807,7 @@ const styles = StyleSheet.create({
     },
     starsRow: {
         flexDirection: 'row',
-        justifyContent: 'center', 
+        justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 8,
     },
@@ -804,7 +828,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     
-    // --- Linear Rating (Q6) ---
+    // --- Linear Rating ---
     linearScaleContainer: {
         backgroundColor: '#FBFBFB',
         borderRadius: 10,
@@ -844,7 +868,7 @@ const styles = StyleSheet.create({
         color: '#999',
     },
 
-    // --- Date / Time / Dropdown (Q5, Q8, Q12) ---
+    // --- Date / Time / Dropdown ---
     dateInputContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -863,7 +887,7 @@ const styles = StyleSheet.create({
         color: '#333',
     },
     
-    // --- Picture Upload (Q9) ---
+    // --- Picture Upload ---
     uploadContainer: {
         alignItems: 'center',
         justifyContent: 'center',
@@ -882,16 +906,49 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
 
+    // --- Fallback Styles ---
+    fallbackContainer: {
+        padding: 15,
+        backgroundColor: '#FFF8F1',
+        borderRadius: 8,
+        marginTop: 8,
+    },
+    fallbackText: {
+        fontSize: 14,
+        color: '#FF7E1D',
+        fontWeight: '600',
+    },
+    debugText: {
+        fontSize: 12,
+        color: '#666',
+        marginTop: 4,
+    },
+
+    // --- No Questions State ---
+    noQuestionsContainer: {
+        alignItems: 'center',
+        padding: 30,
+        backgroundColor: '#FFF8F1',
+        borderRadius: 10,
+        marginTop: 20,
+    },
+    noQuestionsText: {
+        fontSize: 16,
+        color: '#FF7E1D',
+        fontWeight: '600',
+        marginTop: 10,
+    },
+
     // --- Fixed Bottom Action Bar ---
     previewActions: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         paddingHorizontal: 16,
         paddingVertical: 10,
-        backgroundColor: '#fff', 
+        backgroundColor: '#fff',
         borderTopWidth: 0,
         position: 'absolute',
-        bottom: 40, 
+        bottom: 40,
         left: 0,
         right: 0,
     },
@@ -900,7 +957,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: '#fff',
         paddingVertical: 12,
-        paddingHorizontal: 30, 
+        paddingHorizontal: 30,
         borderRadius: 12,
         borderWidth: 1,
         borderColor: '#FFDCA8',
@@ -937,7 +994,7 @@ const styles = StyleSheet.create({
         fontWeight: '800',
     },
 
-    // --- Final Message Container ---
+    // --- Bottom Message ---
     bottomMessageContainer: {
         position: 'absolute',
         bottom: 0,
@@ -945,7 +1002,7 @@ const styles = StyleSheet.create({
         right: 0,
         paddingTop: 4,
         paddingBottom: 15,
-        backgroundColor: '#fff', 
+        backgroundColor: '#fff',
     },
     publishSuccessMessage: {
         textAlign: 'center',
@@ -953,7 +1010,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
 
-    // Fallback/Error styles
+    // --- Error State ---
     goBackButton: {
         marginTop: 20,
         padding: 10,

@@ -1,5 +1,3 @@
-// app/screens/DraftsScreen.js
-
 import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -13,7 +11,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../../supabaseClient';
 
 const DraftsScreen = () => {
   const navigation = useNavigation();
@@ -29,24 +27,127 @@ const DraftsScreen = () => {
 
   const loadDrafts = async () => {
     try {
-      const savedDrafts = await AsyncStorage.getItem('surveyDrafts');
-      const draftsData = savedDrafts ? JSON.parse(savedDrafts) : [];
-      const sortedDrafts = draftsData.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-      setDrafts(sortedDrafts);
+      setRefreshing(true);
+      
+      const { data: draftsData, error } = await supabase
+        .from('surveys')
+        .select('*')
+        .eq('status', 'draft')
+        .eq('user_id', 'user_001')
+        .order('updated_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      const transformedDrafts = (draftsData || []).map(survey => {
+        let questionsArray = [];
+        try {
+          if (survey.questions) {
+            if (Array.isArray(survey.questions)) {
+              questionsArray = survey.questions;
+            } else if (typeof survey.questions === 'string') {
+              questionsArray = JSON.parse(survey.questions);
+            } else if (typeof survey.questions === 'object') {
+              questionsArray = Object.values(survey.questions);
+            }
+          }
+        } catch (parseError) {
+          console.error('Error parsing questions:', parseError);
+          questionsArray = [];
+        }
+        
+        if (!Array.isArray(questionsArray)) {
+          questionsArray = [];
+        }
+        
+        return {
+          id: survey.id.toString(),
+          formHeading: survey.title || "Untitled Survey",
+          formDescription: survey.description || "No description",
+          selectedCategory: survey.category || "General",
+          isPublicForm: survey.is_public_form || false,
+          questions: questionsArray,
+          demographicFilters: survey.demographic_filters || {},
+          updatedAt: survey.updated_at || new Date().toISOString(),
+          createdAt: survey.created_at || new Date().toISOString(),
+          plan: survey.plan || 'basic',
+          responses: survey.responses_collected || 0,
+          price: survey.price || 0
+        };
+      });
+      
+      setDrafts(transformedDrafts);
+      
     } catch (error) {
       console.error('Error loading drafts:', error);
-      Alert.alert("Error", "Failed to load drafts");
+      Alert.alert("Error", "Failed to load drafts from database");
+    } finally {
+      setRefreshing(false);
     }
   };
 
   const onRefresh = async () => {
-    setRefreshing(true);
     await loadDrafts();
-    setRefreshing(false);
   };
 
+  // ✅ FIXED: handleEditDraft function
   const handleEditDraft = (draft) => {
-    navigation.navigate('CreateNewSurvey', { draftData: draft });
+    console.log('Editing draft with questions:', draft.questions);
+    
+    // Fix options if they're stored as object instead of array
+    const fixedQuestions = (draft.questions || []).map((q, index) => {
+      // Fix options - convert object to array if needed
+      let optionsArray = [];
+      if (q.options) {
+        if (Array.isArray(q.options)) {
+          optionsArray = q.options;
+        } else if (typeof q.options === 'object') {
+          // Convert object {0: "Option 1", 1: "Option 2"} to array
+          optionsArray = Object.values(q.options);
+        } else if (typeof q.options === 'string') {
+          try {
+            optionsArray = JSON.parse(q.options);
+          } catch (e) {
+            optionsArray = [q.options];
+          }
+        }
+      }
+      
+      // Ensure minimum 3 options for question types that need options
+      if (['multiple_choice', 'checkboxes', 'dropdown'].includes(q.questionType)) {
+        while (optionsArray.length < 3) {
+          optionsArray.push('');
+        }
+      }
+      
+      return {
+        id: q.id || index + 1,
+        questionText: q.questionText || '',
+        questionType: q.questionType || 'multiple_choice',
+        options: optionsArray,
+        isRequired: q.isRequired !== undefined ? q.isRequired : true,
+        media: q.media || null
+      };
+    });
+    
+    // Ensure at least one question exists
+    if (fixedQuestions.length === 0) {
+      fixedQuestions.push({
+        id: 1,
+        questionText: '',
+        questionType: 'multiple_choice',
+        options: ['', '', ''],
+        isRequired: true,
+        media: null
+      });
+    }
+    
+    const safeDraftData = {
+      ...draft,
+      questions: fixedQuestions
+    };
+    
+    console.log('Safe draft data for editing:', safeDraftData);
+    navigation.navigate('CreateNewSurvey', { draftData: safeDraftData });
   };
 
   const handleDeleteDraft = (draft) => {
@@ -66,41 +167,59 @@ const DraftsScreen = () => {
 
   const confirmDeleteDraft = async (draftId) => {
     try {
+      const { error } = await supabase
+        .from('surveys')
+        .delete()
+        .eq('id', draftId);
+      
+      if (error) throw error;
+      
       const updatedDrafts = drafts.filter(draft => draft.id !== draftId);
-      await AsyncStorage.setItem('surveyDrafts', JSON.stringify(updatedDrafts));
       setDrafts(updatedDrafts);
-      Alert.alert("Success", "Draft deleted successfully");
+      
+      Alert.alert("Success", "Draft deleted successfully from database!");
+      
     } catch (error) {
       console.error('Error deleting draft:', error);
-      Alert.alert("Error", "Failed to delete draft");
+      Alert.alert("Error", "Failed to delete draft from database");
     }
   };
 
   const handlePreviewDraft = (draft) => {
-    navigation.navigate('PreviewScreen', { formData: draft });
+    const safeFormData = {
+      ...draft,
+      questions: Array.isArray(draft.questions) ? draft.questions : []
+    };
+    
+    console.log('Previewing draft with safe questions:', safeFormData.questions);
+    navigation.navigate('PreviewScreen', { formData: safeFormData });
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now - date);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 1) {
-      return 'Yesterday';
-    } else if (diffDays < 7) {
-      return `${diffDays} days ago`;
-    } else {
-      return date.toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric',
-        year: 'numeric'
-      });
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffTime = Math.abs(now - date);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 1) {
+        return 'Yesterday';
+      } else if (diffDays < 7) {
+        return `${diffDays} days ago`;
+      } else {
+        return date.toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric',
+          year: 'numeric'
+        });
+      }
+    } catch (error) {
+      return 'Recent';
     }
   };
 
   const getQuestionCountText = (questions) => {
-    const count = questions.length;
+    const count = questions?.length || 0;
     return `${count} question${count !== 1 ? 's' : ''}`;
   };
 
@@ -306,8 +425,6 @@ const DraftsScreen = () => {
           <EmptyDraftsState />
         ) : (
           <>
-            {/* REMOVED: Quick Stats Section */}
-            
             <View style={styles.draftsList}>
               <Text style={styles.sectionTitle}>Your Drafts</Text>
               {drafts.map((draft, index) => (
@@ -426,10 +543,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 8,
   },
-  // REMOVED: statsContainer, statCard, statNumber, statLabel styles
   draftsList: {
     paddingHorizontal: 20,
-    marginTop: 20, // Increased top margin since stats are removed
+    marginTop: 20,
     marginBottom: 20,
   },
   sectionTitle: {

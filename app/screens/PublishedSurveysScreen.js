@@ -7,13 +7,14 @@ import {
   TouchableOpacity,
   Alert,
   RefreshControl,
-  Modal,
-  TextInput
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// --- SUPABASE CONFIG ---
+const SUPABASE_URL = 'https://oyavjqycsjfcnzlshdsu.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95YXZqcXljc2pmY256bHNoZHN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxNTgwMjcsImV4cCI6MjA3NTczNDAyN30.22cwyIWSBmhLefCvobdbH42cPSTnw_NmSwbwaYvyLy4';
 
 const PublishedSurveysScreen = () => {
   const navigation = useNavigation();
@@ -22,8 +23,6 @@ const PublishedSurveysScreen = () => {
   const [publishedSurveys, setPublishedSurveys] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedSurvey, setSelectedSurvey] = useState(null);
-  const [showResponseModal, setShowResponseModal] = useState(false);
-  const [responseInput, setResponseInput] = useState('');
 
   useEffect(() => {
     if (isFocused) {
@@ -31,16 +30,71 @@ const PublishedSurveysScreen = () => {
     }
   }, [isFocused]);
 
+  // ✅ FIXED: Load ONLY published surveys
   const loadPublishedSurveys = async () => {
     try {
       setRefreshing(true);
-      const savedPublished = await AsyncStorage.getItem('publishedSurveys');
-      const surveys = savedPublished ? JSON.parse(savedPublished) : [];
-      const sortedSurveys = surveys.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      setPublishedSurveys(sortedSurveys);
+      
+      console.log('Fetching ONLY PUBLISHED surveys from Supabase...');
+      
+      // ✅ IMPORTANT: Only fetch surveys with status='published'
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/surveys?select=*&status=eq.published&order=created_at.desc`, 
+        {
+          method: 'GET',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log('Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Supabase Error Response:', errorText);
+        throw new Error(`Failed to fetch surveys: ${response.status}`);
+      }
+
+      const surveys = await response.json();
+      console.log('✅ PUBLISHED Surveys fetched:', surveys.length);
+      
+      // Log each survey for debugging
+      surveys.forEach(survey => {
+        console.log(`📋 Survey: "${survey.title}", Status: ${survey.status}, Draft: ${survey.is_draft}`);
+      });
+      
+      // Transform data for display
+      const transformedSurveys = surveys.map(survey => ({
+        id: survey.id.toString(),
+        title: survey.title || "Untitled Survey",
+        description: survey.description || "No description provided",
+        category: survey.category || "General",
+        plan: survey.plan || 'basic',
+        planName: survey.plan_name || 'Basic Plan',
+        isPublicForm: survey.is_public_form || false,
+        responsesCollected: survey.responses_collected || 0,
+        totalResponses: survey.total_responses || 100,
+        price: survey.price || 300,
+        questions: survey.questions || [],
+        demographicFilters: survey.demographic_filters || {},
+        createdAt: survey.created_at || new Date().toISOString(),
+        updatedAt: survey.updated_at || new Date().toISOString(),
+        status: survey.status || 'published',
+        isDraft: survey.is_draft || false
+      }));
+      
+      setPublishedSurveys(transformedSurveys);
+      
     } catch (error) {
       console.error('Error loading published surveys:', error);
-      Alert.alert("Error", "Failed to load published surveys");
+      Alert.alert(
+        "Connection Error", 
+        `Failed to load surveys from database.\n\nError: ${error.message}\n\nPlease check your internet connection and Supabase configuration.`
+      );
+      setPublishedSurveys([]);
     } finally {
       setRefreshing(false);
     }
@@ -51,23 +105,27 @@ const PublishedSurveysScreen = () => {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now - date);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) {
-      return 'Today';
-    } else if (diffDays === 1) {
-      return 'Yesterday';
-    } else if (diffDays < 7) {
-      return `${diffDays} days ago`;
-    } else {
-      return date.toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric',
-        year: 'numeric'
-      });
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffTime = Math.abs(now - date);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 0) {
+        return 'Today';
+      } else if (diffDays === 1) {
+        return 'Yesterday';
+      } else if (diffDays < 7) {
+        return `${diffDays} days ago`;
+      } else {
+        return date.toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric',
+          year: 'numeric'
+        });
+      }
+    } catch (error) {
+      return 'Recent';
     }
   };
 
@@ -91,59 +149,28 @@ const PublishedSurveysScreen = () => {
     }
   };
 
+  // ✅ FIX: Remove "Plan" repetition
+  const getDisplayPlanName = (planName) => {
+    if (!planName) return 'Basic Plan';
+    
+    if (planName.toLowerCase().includes('plan')) {
+      return planName;
+    }
+    
+    return `${planName} Plan`;
+  };
+
   const getProgressPercentage = (survey) => {
+    if (!survey.totalResponses || survey.totalResponses === 0) return 0;
     return (survey.responsesCollected / survey.totalResponses) * 100;
   };
 
   const getProgressColor = (percentage) => {
+    if (percentage >= 100) return '#4CAF50';
     if (percentage >= 90) return '#4CAF50';
     if (percentage >= 70) return '#FF9800';
     if (percentage >= 50) return '#FFC107';
     return '#F44336';
-  };
-
-  const handleAddResponses = (survey) => {
-    setSelectedSurvey(survey);
-    setResponseInput('');
-    setShowResponseModal(true);
-  };
-
-  const confirmAddResponses = async () => {
-    if (!responseInput || isNaN(responseInput) || parseInt(responseInput) <= 0) {
-      Alert.alert("Invalid Input", "Please enter a valid number of responses.");
-      return;
-    }
-
-    const responsesToAdd = parseInt(responseInput);
-    
-    try {
-      const updatedSurveys = publishedSurveys.map(survey => {
-        if (survey.id === selectedSurvey.id) {
-          const newTotal = survey.totalResponses + responsesToAdd;
-          const newPrice = survey.plan === 'basic' ? Math.ceil(newTotal / 100) * 300 :
-                          survey.plan === 'standard' ? Math.ceil(newTotal / 300) * 750 :
-                          survey.plan === 'premium' ? Math.ceil(newTotal / 1000) * 2000 :
-                          newTotal * 2;
-          
-          return {
-            ...survey,
-            totalResponses: newTotal,
-            price: newPrice,
-            responses: newTotal,
-            updatedAt: new Date().toISOString()
-          };
-        }
-        return survey;
-      });
-
-      await AsyncStorage.setItem('publishedSurveys', JSON.stringify(updatedSurveys));
-      setPublishedSurveys(updatedSurveys);
-      setShowResponseModal(false);
-      Alert.alert("Success", `${responsesToAdd} responses added successfully!`);
-    } catch (error) {
-      console.error('Error updating survey:', error);
-      Alert.alert("Error", "Failed to add responses");
-    }
   };
 
   const handleDeleteSurvey = (survey) => {
@@ -155,40 +182,116 @@ const PublishedSurveysScreen = () => {
         { 
           text: "Delete", 
           style: "destructive",
-          onPress: () => confirmDeleteSurvey(survey.id)
+          onPress: () => confirmDeleteSurvey(survey)
         }
       ]
     );
   };
 
-  const confirmDeleteSurvey = async (surveyId) => {
+  const confirmDeleteSurvey = async (survey) => {
     try {
-      const updatedSurveys = publishedSurveys.filter(survey => survey.id !== surveyId);
-      await AsyncStorage.setItem('publishedSurveys', JSON.stringify(updatedSurveys));
+      const deleteResponse = await fetch(
+        `${SUPABASE_URL}/rest/v1/surveys?id=eq.${survey.id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Prefer': 'return=minimal'
+          }
+        }
+      );
+
+      if (!deleteResponse.ok) {
+        throw new Error('Failed to delete survey from database');
+      }
+
+      const updatedSurveys = publishedSurveys.filter(s => s.id !== survey.id);
       setPublishedSurveys(updatedSurveys);
-      Alert.alert("Success", "Survey deleted successfully");
+      
+      Alert.alert("Success", "Survey deleted successfully!");
+      
     } catch (error) {
       console.error('Error deleting survey:', error);
-      Alert.alert("Error", "Failed to delete survey");
+      Alert.alert("Error", "Failed to delete survey from database.");
+    }
+  };
+
+  const handleFinishSurvey = async (survey) => {
+    Alert.alert(
+      "Finish Survey",
+      `Are you sure you want to mark "${survey.title}" as finished? This will move it to Finished Surveys.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Finish", 
+          style: "default",
+          onPress: () => confirmFinishSurvey(survey)
+        }
+      ]
+    );
+  };
+
+  const confirmFinishSurvey = async (survey) => {
+    try {
+      const updateResponse = await fetch(
+        `${SUPABASE_URL}/rest/v1/surveys?id=eq.${survey.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify({
+            status: 'finished',
+            updated_at: new Date().toISOString()
+          })
+        }
+      );
+
+      if (!updateResponse.ok) {
+        throw new Error('Failed to finish survey in database');
+      }
+
+      const updatedSurveys = publishedSurveys.filter(s => s.id !== survey.id);
+      setPublishedSurveys(updatedSurveys);
+      
+      Alert.alert(
+        "Survey Finished", 
+        `"${survey.title}" has been moved to Finished Surveys.`,
+        [
+          { 
+            text: "OK",
+            onPress: () => {
+              navigation.navigate('CreatorDashboard', { refresh: true });
+            }
+          }
+        ]
+      );
+      
+    } catch (error) {
+      console.error('Error finishing survey:', error);
+      Alert.alert("Error", "Failed to finish survey.");
     }
   };
 
   const handleViewAnalytics = (survey) => {
+    const progressPercentage = getProgressPercentage(survey);
+    
     Alert.alert(
-      "Analytics for " + survey.title,
-      `📊 Survey Analytics\n\n` +
+      `📊 Analytics for: ${survey.title}`,
+      `📝 Description: ${survey.description}\n\n` +
+      `🏷️ Category: ${survey.category}\n` +
+      `🌐 Type: ${survey.isPublicForm ? "Public Form" : "Private Form"}\n` +
       `📈 Progress: ${survey.responsesCollected}/${survey.totalResponses} responses\n` +
-      `🎯 Completion: ${getProgressPercentage(survey).toFixed(1)}%\n` +
-      `💰 Value: Rs ${survey.price}\n` +
+      `🎯 Completion: ${progressPercentage.toFixed(1)}%\n` +
+      `💰 Estimated Value: Rs ${survey.price}\n` +
       `📅 Published: ${formatDate(survey.createdAt)}\n` +
-      `🏷️ Category: ${survey.category}\n\n` +
-      `Detailed analytics dashboard coming soon!`,
+      `🔄 Last Updated: ${formatDate(survey.updatedAt)}`,
       [
-        { text: "OK" },
-        {
-          text: "Add More Responses",
-          onPress: () => handleAddResponses(survey)
-        }
+        { text: "OK" }
       ]
     );
   };
@@ -224,13 +327,10 @@ const PublishedSurveysScreen = () => {
   const PublishedSurveyCard = ({ survey, index }) => {
     const progressPercentage = getProgressPercentage(survey);
     const progressColor = getProgressColor(progressPercentage);
+    const isCompleted = progressPercentage >= 100;
 
     return (
-      <TouchableOpacity 
-        style={styles.surveyCard}
-        onPress={() => handleViewAnalytics(survey)}
-        activeOpacity={0.7}
-      >
+      <View style={styles.surveyCard}>
         <LinearGradient
           colors={['#FFFFFF', '#FFF8E1']}
           start={{ x: 0, y: 0 }}
@@ -252,9 +352,21 @@ const PublishedSurveysScreen = () => {
                 </Text>
               </View>
               
-              <View style={styles.statusBadge}>
-                <MaterialCommunityIcons name="check-circle" size={14} color="#4CAF50" />
-                <Text style={styles.statusText}>LIVE</Text>
+              <View style={[
+                styles.statusBadge,
+                isCompleted ? styles.completedBadge : styles.liveBadge
+              ]}>
+                <MaterialCommunityIcons 
+                  name={isCompleted ? "check-circle" : "check-circle"} 
+                  size={14} 
+                  color={isCompleted ? "#fff" : "#4CAF50"} 
+                />
+                <Text style={[
+                  styles.statusText,
+                  isCompleted ? styles.completedText : styles.liveText
+                ]}>
+                  {isCompleted ? 'COMPLETED' : 'LIVE'}
+                </Text>
               </View>
             </View>
             
@@ -270,30 +382,47 @@ const PublishedSurveysScreen = () => {
           </View>
 
           <Text style={styles.surveyDescription} numberOfLines={2}>
-            {survey.description || 'No description provided'}
+            {survey.description}
           </Text>
 
           <View style={styles.statsSection}>
             <View style={styles.statItem}>
               <MaterialCommunityIcons name="chart-bar" size={16} color="#666" />
               <Text style={styles.statText}>
-                {survey.planName || survey.plan} Plan
+                {getDisplayPlanName(survey.planName)}
               </Text>
             </View>
             
             <View style={styles.statItem}>
               <MaterialIcons name="category" size={16} color="#666" />
               <Text style={styles.statText}>
-                {survey.category || 'General'}
+                {survey.category}
+              </Text>
+            </View>
+            
+            <View style={styles.statItem}>
+              <MaterialCommunityIcons 
+                name={survey.isPublicForm ? "earth" : "lock"} 
+                size={16} 
+                color="#666" 
+              />
+              <Text style={styles.statText}>
+                {survey.isPublicForm ? "Public" : "Private"}
               </Text>
             </View>
           </View>
 
-          {/* Progress Section */}
           <View style={styles.progressSection}>
             <View style={styles.progressHeader}>
-              <Text style={styles.progressTitle}>Responses Progress</Text>
-              <Text style={styles.progressPercentage}>{progressPercentage.toFixed(1)}%</Text>
+              <Text style={styles.progressTitle}>
+                {isCompleted ? '✅ Completed' : 'Responses Progress'}
+              </Text>
+              <Text style={[
+                styles.progressPercentage,
+                isCompleted && styles.completedPercentage
+              ]}>
+                {progressPercentage.toFixed(1)}%
+              </Text>
             </View>
             
             <View style={styles.progressBar}>
@@ -325,17 +454,6 @@ const PublishedSurveysScreen = () => {
             
             <View style={styles.actionButtons}>
               <TouchableOpacity 
-                style={styles.addResponseButton}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  handleAddResponses(survey);
-                }}
-              >
-                <MaterialIcons name="add-circle" size={18} color="#FF7800" />
-                <Text style={styles.addResponseText}>Add Responses</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
                 style={styles.analyticsButton}
                 onPress={(e) => {
                   e.stopPropagation();
@@ -343,34 +461,25 @@ const PublishedSurveysScreen = () => {
                 }}
               >
                 <MaterialIcons name="analytics" size={18} color="#fff" />
-                <Text style={styles.analyticsButtonText}>Analytics</Text>
+                <Text style={styles.analyticsButtonText}>View Analytics</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {selectedSurvey?.id === survey.id && (
             <View style={styles.dropdownMenu}>
-              <TouchableOpacity 
-                style={styles.menuItem}
-                onPress={() => {
-                  handleViewAnalytics(survey);
-                  setSelectedSurvey(null);
-                }}
-              >
-                <MaterialIcons name="analytics" size={20} color="#666" />
-                <Text style={styles.menuItemText}>View Analytics</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.menuItem}
-                onPress={() => {
-                  handleAddResponses(survey);
-                  setSelectedSurvey(null);
-                }}
-              >
-                <MaterialIcons name="add-circle" size={20} color="#666" />
-                <Text style={styles.menuItemText}>Add Responses</Text>
-              </TouchableOpacity>
+              {!isCompleted && (
+                <TouchableOpacity 
+                  style={styles.menuItem}
+                  onPress={() => {
+                    handleFinishSurvey(survey);
+                    setSelectedSurvey(null);
+                  }}
+                >
+                  <MaterialCommunityIcons name="check-circle-outline" size={20} color="#4CAF50" />
+                  <Text style={[styles.menuItemText, { color: '#4CAF50' }]}>Finish Survey</Text>
+                </TouchableOpacity>
+              )}
               
               <TouchableOpacity 
                 style={[styles.menuItem, styles.deleteMenuItem]}
@@ -385,13 +494,12 @@ const PublishedSurveysScreen = () => {
             </View>
           )}
         </LinearGradient>
-      </TouchableOpacity>
+      </View>
     );
   };
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <LinearGradient
         colors={["#FF7800", "#FFD464"]}
         start={{ x: 0, y: 0 }}
@@ -439,12 +547,11 @@ const PublishedSurveysScreen = () => {
           <EmptyPublishedState />
         ) : (
           <>
-            {/* Stats Overview */}
             <View style={styles.statsContainer}>
               <View style={styles.statCard}>
                 <MaterialCommunityIcons name="chart-bar" size={30} color="#FF7800" />
                 <Text style={styles.statNumber}>{publishedSurveys.length}</Text>
-                <Text style={styles.statLabel}>Total Surveys</Text>
+                <Text style={styles.statLabel}>Active Surveys</Text>
               </View>
               
               <View style={styles.statCard}>
@@ -452,7 +559,7 @@ const PublishedSurveysScreen = () => {
                 <Text style={styles.statNumber}>
                   {publishedSurveys.reduce((sum, survey) => sum + survey.responsesCollected, 0)}
                 </Text>
-                <Text style={styles.statLabel}>Responses</Text>
+                <Text style={styles.statLabel}>Total Responses</Text>
               </View>
               
               <View style={styles.statCard}>
@@ -460,12 +567,12 @@ const PublishedSurveysScreen = () => {
                 <Text style={styles.statNumber}>
                   Rs {publishedSurveys.reduce((sum, survey) => sum + survey.price, 0)}
                 </Text>
-                <Text style={styles.statLabel}>Value</Text>
+                <Text style={styles.statLabel}>Total Value</Text>
               </View>
             </View>
 
             <View style={styles.surveysList}>
-              <Text style={styles.sectionTitle}>All Published Surveys</Text>
+              <Text style={styles.sectionTitle}>Active Published Surveys</Text>
               {publishedSurveys.map((survey, index) => (
                 <PublishedSurveyCard 
                   key={survey.id} 
@@ -492,60 +599,6 @@ const PublishedSurveysScreen = () => {
           </>
         )}
       </ScrollView>
-
-      {/* Add Responses Modal */}
-      <Modal
-        visible={showResponseModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowResponseModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Add Responses</Text>
-            
-            <Text style={styles.modalSubtitle}>
-              How many responses do you want to add to "{selectedSurvey?.title}"?
-            </Text>
-            
-            <TextInput
-              style={styles.responseInput}
-              keyboardType="numeric"
-              placeholder="Enter number of responses"
-              placeholderTextColor="#999"
-              value={responseInput}
-              onChangeText={setResponseInput}
-            />
-            
-            <Text style={styles.modalNote}>
-              Current: {selectedSurvey?.totalResponses} responses • Rs {selectedSurvey?.price}
-            </Text>
-            
-            <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={styles.modalCancelButton}
-                onPress={() => setShowResponseModal(false)}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={styles.modalConfirmButton}
-                onPress={confirmAddResponses}
-              >
-                <LinearGradient
-                  colors={['#FF7800', '#FFD464']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.confirmButtonGradient}
-                >
-                  <Text style={styles.modalConfirmText}>Add Responses</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 };
@@ -759,17 +812,28 @@ const styles = StyleSheet.create({
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8F5E9',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
     alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  liveBadge: {
+    backgroundColor: '#E8F5E9',
+  },
+  completedBadge: {
+    backgroundColor: '#4CAF50',
   },
   statusText: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#4CAF50',
     marginLeft: 4,
+  },
+  liveText: {
+    color: '#4CAF50',
+  },
+  completedText: {
+    color: '#fff',
   },
   menuButton: {
     padding: 4,
@@ -782,12 +846,14 @@ const styles = StyleSheet.create({
   },
   statsSection: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     marginBottom: 15,
   },
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 20,
+    marginRight: 15,
+    marginBottom: 5,
   },
   statText: {
     fontSize: 13,
@@ -815,6 +881,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#FF7800',
+  },
+  completedPercentage: {
+    color: '#4CAF50',
   },
   progressBar: {
     height: 8,
@@ -856,22 +925,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  addResponseButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FFD464',
-    marginRight: 8,
-  },
-  addResponseText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#FF7800',
-    marginLeft: 4,
-  },
   analyticsButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -900,6 +953,7 @@ const styles = StyleSheet.create({
     zIndex: 1000,
     borderWidth: 1,
     borderColor: '#f0f0f0',
+    width: 180,
   },
   menuItem: {
     flexDirection: 'row',
@@ -913,89 +967,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     marginLeft: 8,
+    flex: 1,
   },
   deleteMenuItem: {
     borderBottomWidth: 0,
   },
   deleteMenuText: {
     color: '#FF6B6B',
-  },
-  // Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 20,
-    width: '85%',
-    elevation: 10,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 20,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  responseInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 16,
-    color: '#333',
-    backgroundColor: '#f9f9f9',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  modalNote: {
-    fontSize: 12,
-    color: '#888',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  modalCancelButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    marginRight: 10,
-    alignItems: 'center',
-  },
-  modalCancelText: {
-    fontSize: 16,
-    color: '#666',
-    fontWeight: '600',
-  },
-  modalConfirmButton: {
-    flex: 2,
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-  confirmButtonGradient: {
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  modalConfirmText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: 'bold',
   },
 });
 

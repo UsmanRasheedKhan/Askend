@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     StyleSheet,
     View,
@@ -9,10 +9,12 @@ import {
     SafeAreaView,
     Dimensions,
     Alert,
+    ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
+import { supabase } from '../../supabaseClient';
 
 const { width } = Dimensions.get('window');
 
@@ -228,7 +230,7 @@ const PaymentBar = ({ selectedPlan, planPrice, onPublish, customResponses, isPub
                     >
                         {isPublishing ? (
                             <>
-                                <MaterialIcons name="hourglass-empty" size={20} color="#fff" />
+                                <ActivityIndicator size="small" color="#fff" />
                                 <Text style={styles.publishText}>Publishing...</Text>
                             </>
                         ) : (
@@ -259,7 +261,8 @@ const ChoosePlanScreen = ({ navigation, route }) => {
     const [customResponses, setCustomResponses] = useState('');
     const [isPublishing, setIsPublishing] = useState(false);
     
-    // Get form data from navigation params (from PreviewScreen or CreateNewSurveyScreen)
+    // ✅ Get draftId from route params
+    const draftId = route.params?.draftId;
     const formData = route.params?.formData || {};
 
     const handlePlanSelect = (plan) => {
@@ -281,6 +284,18 @@ const ChoosePlanScreen = ({ navigation, route }) => {
         }
     };
 
+    const getSelectedPlanResponses = () => {
+        switch(selectedPlan) {
+            case 'basic': return 100;
+            case 'standard': return 300;
+            case 'premium': return 1000;
+            case 'custom': 
+                return parseInt(customResponses) || 0;
+            default: return 100;
+        }
+    };
+
+    // ✅ FIXED: PUBLISH FUNCTION
     const handlePublish = async () => {
         if (!selectedPlan) {
             Alert.alert("Select Plan", "Please select a plan first to publish your survey.");
@@ -303,72 +318,85 @@ const ChoosePlanScreen = ({ navigation, route }) => {
         setIsPublishing(true);
 
         try {
-            // Create published survey object
-            const publishedSurvey = {
-                id: Date.now().toString(),
+            // ✅ Prepare survey data
+            const surveyData = {
                 title: formData.formHeading || "Untitled Survey",
                 description: formData.formDescription || "No description",
                 category: formData.selectedCategory || "General",
+                is_public_form: formData.isPublicForm || false,
                 plan: selectedPlan,
-                planName: selectedPlan === 'basic' ? 'Basic' : 
-                          selectedPlan === 'standard' ? 'Standard' : 
-                          selectedPlan === 'premium' ? 'Premium' : 'Custom',
+                plan_name: selectedPlan === 'basic' ? 'Basic' : 
+                         selectedPlan === 'standard' ? 'Standard' : 
+                         selectedPlan === 'premium' ? 'Premium' : 'Custom',
                 price: getSelectedPlanPrice(),
-                responses: selectedPlan === 'custom' ? (parseInt(customResponses) || 0) : 
-                         selectedPlan === 'basic' ? 100 :
-                         selectedPlan === 'standard' ? 300 : 1000,
+                total_responses: getSelectedPlanResponses(),
+                responses_collected: 0,
                 questions: formData.questions || [],
-                demographicFilters: formData.demographicFilters || {},
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
+                demographic_filters: formData.demographicFilters || {},
                 status: 'published',
-                responsesCollected: 0,
-                totalResponses: selectedPlan === 'custom' ? (parseInt(customResponses) || 0) : 
-                               selectedPlan === 'basic' ? 100 :
-                               selectedPlan === 'standard' ? 300 : 1000
+                is_draft: false,
+                user_id: 'user_001',
+                updated_at: new Date().toISOString()
             };
 
-            // Get existing published surveys
-            const existingPublished = await AsyncStorage.getItem('publishedSurveys');
-            const publishedSurveys = existingPublished ? JSON.parse(existingPublished) : [];
+            console.log('🔄 Publishing survey with data:', surveyData);
+            console.log('📝 Draft ID to update:', draftId);
+
+            let result;
             
-            // Add new published survey at the beginning
-            publishedSurveys.unshift(publishedSurvey);
-            
-            // Save back to AsyncStorage
-            await AsyncStorage.setItem('publishedSurveys', JSON.stringify(publishedSurveys));
-            
-            // Also remove from drafts if it was saved as draft
-            try {
-                const existingDrafts = await AsyncStorage.getItem('surveyDrafts');
-                if (existingDrafts) {
-                    const drafts = JSON.parse(existingDrafts);
-                    // Remove draft with same title (optional logic)
-                    const updatedDrafts = drafts.filter(draft => 
-                        draft.formHeading !== formData.formHeading
-                    );
-                    await AsyncStorage.setItem('surveyDrafts', JSON.stringify(updatedDrafts));
+            // ✅ FIXED: ALWAYS UPDATE IF WE HAVE DRAFT ID
+            if (draftId) {
+                console.log('✅ UPDATING existing draft with ID:', draftId);
+                
+                const { data, error } = await supabase
+                    .from('surveys')
+                    .update(surveyData)
+                    .eq('id', draftId)
+                    .select();
+
+                if (error) {
+                    console.error('❌ Supabase Update Error:', error);
+                    throw new Error(`Failed to publish survey: ${error.message}`);
                 }
-            } catch (draftError) {
-                // Ignore draft removal errors
-                console.log('Draft removal optional:', draftError);
+                
+                result = data?.[0];
+                console.log('✅ Draft successfully published:', result);
+                
+            } else {
+                // ✅ If no draft ID, insert new
+                console.log('➕ INSERTING new published survey (no draft)');
+                
+                const { data, error } = await supabase
+                    .from('surveys')
+                    .insert([{
+                        ...surveyData,
+                        created_at: new Date().toISOString()
+                    }])
+                    .select();
+
+                if (error) {
+                    console.error('❌ Supabase Insert Error:', error);
+                    throw new Error(`Failed to publish survey: ${error.message}`);
+                }
+                
+                result = data?.[0];
+                console.log('✅ New survey published:', result);
             }
-            
+
             setIsPublishing(false);
             
-            // Show success message with better navigation options
+            // ✅ SUCCESS MESSAGE
             Alert.alert(
                 "Success! 🎉",
-                `Your survey "${publishedSurvey.title}" has been published successfully!\n\nPlan: ${publishedSurvey.planName}\nResponses: ${publishedSurvey.responses}\nPrice: Rs ${publishedSurvey.price}`,
+                `Your survey "${surveyData.title}" has been published!\n\n✅ Draft removed from drafts section\n✅ Now visible in published surveys`,
                 [
                     { 
-                        text: "View Published Surveys", 
+                        text: "View Published", 
                         onPress: () => {
-                            // Navigate directly to PublishedSurveysScreen
                             navigation.reset({
                                 index: 1,
                                 routes: [
-                                    { name: 'CreatorDashboard' },
+                                    { name: 'CreatorDashboard', params: { refresh: true } },
                                     { name: 'PublishedSurveysScreen' }
                                 ],
                             });
@@ -377,14 +405,10 @@ const ChoosePlanScreen = ({ navigation, route }) => {
                     {
                         text: "Go to Dashboard",
                         onPress: () => {
-                            navigation.navigate('CreatorDashboard', { refresh: true });
-                        }
-                    },
-                    {
-                        text: "Create Another",
-                        style: 'destructive',
-                        onPress: () => {
-                            navigation.navigate('CreateNewSurvey');
+                            navigation.navigate('CreatorDashboard', { 
+                                refresh: true,
+                                message: `Survey "${surveyData.title}" published successfully!`
+                            });
                         }
                     }
                 ]
@@ -392,13 +416,16 @@ const ChoosePlanScreen = ({ navigation, route }) => {
             
         } catch (error) {
             setIsPublishing(false);
-            console.error('Error publishing survey:', error);
-            Alert.alert("Publishing Failed", "Failed to publish survey. Please try again.");
+            console.error('❌ Publish error:', error);
+            Alert.alert(
+                "Publishing Failed", 
+                error.message || "Failed to publish survey. Please try again."
+            );
         }
     };
 
-    // Calculate dynamic bottom padding for ScrollView so content doesn't get hidden by the PaymentBar
-    const bottomPadding = selectedPlan ? 160 : 0; // Approx height of payment bar + safe area padding
+    // Calculate dynamic bottom padding for ScrollView
+    const bottomPadding = selectedPlan ? 160 : 0;
 
     return (
         <SafeAreaView style={styles.safeArea}>
@@ -433,55 +460,41 @@ const ChoosePlanScreen = ({ navigation, route }) => {
                 ]}
                 showsVerticalScrollIndicator={false}
             >
-                {/* Survey Info Card */}
-                {formData.formHeading && (
-                    <View style={styles.fullWidthItem}>
-                        <View style={styles.surveyInfoCard}>
-                            <View style={styles.surveyInfoHeader}>
-                                <MaterialCommunityIcons name="clipboard-text" size={20} color="#FF7E1D" />
-                                <Text style={styles.surveyInfoTitle}>Survey Ready to Publish</Text>
+                {/* ✅ ALL PLANS INCLUDE - TOP PAR (SAME UI AS BEFORE) */}
+                <View style={styles.fullWidthItem}>
+                    <View style={styles.featuresCard}>
+                        <Text style={styles.featuresTitle}>All Plans Include:</Text>
+                        <View style={styles.featuresList}>
+                            <View style={styles.featureItem}>
+                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
+                                <Text style={styles.featureText}>Unlimited Questions</Text>
                             </View>
-                            <Text style={styles.surveyTitle}>{formData.formHeading}</Text>
-                            <Text style={styles.surveyDescription} numberOfLines={2}>
-                                {formData.formDescription || "No description provided"}
-                            </Text>
-                            <View style={styles.surveyMeta}>
-                                <View style={styles.metaItem}>
-                                    <MaterialCommunityIcons name="format-list-bulleted" size={16} color="#666" />
-                                    <Text style={styles.metaText}>
-                                        {formData.questions?.length || 0} questions
-                                    </Text>
-                                </View>
-                                {formData.selectedCategory && (
-                                    <View style={styles.metaItem}>
-                                        <MaterialCommunityIcons name="tag" size={16} color="#666" />
-                                        <Text style={styles.metaText}>{formData.selectedCategory}</Text>
-                                    </View>
-                                )}
-                                {formData.demographicFilters && (
-                                    <View style={styles.metaItem}>
-                                        <MaterialCommunityIcons name="account-group" size={16} color="#666" />
-                                        <Text style={styles.metaText}>
-                                            {formData.demographicFilters.gender || formData.demographicFilters.age ? 
-                                             "Targeted" : "Public"}
-                                        </Text>
-                                    </View>
-                                )}
+                            <View style={styles.featureItem}>
+                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
+                                <Text style={styles.featureText}>Real-time Analytics</Text>
+                            </View>
+                            <View style={styles.featureItem}>
+                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
+                                <Text style={styles.featureText}>Data Export (CSV/Excel)</Text>
+                            </View>
+                            <View style={styles.featureItem}>
+                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
+                                <Text style={styles.featureText}>24/7 Customer Support</Text>
+                            </View>
+                            <View style={styles.featureItem}>
+                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
+                                <Text style={styles.featureText}>Mobile Responsive</Text>
+                            </View>
+                            <View style={styles.featureItem}>
+                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
+                                <Text style={styles.featureText}>Secure Data Storage</Text>
                             </View>
                         </View>
                     </View>
-                )}
-
-                {/* Instruction Card */}
-                <View style={styles.fullWidthItem}>
-                    <View style={styles.headerCard}>
-                        <Text style={styles.headerCardTitle}>Select a Pricing Plan</Text>
-                        <Text style={styles.headerCardSubtitle}>
-                            Choose the plan that best fits your survey needs. All plans include unlimited questions, real-time analytics, and 24/7 support.
-                        </Text>
-                    </View>
                 </View>
 
+                {/* ✅ DIRECTLY SHOW PLANS (NO EXTRA TITLES) */}
+                
                 {/* Basic Plan */}
                 <PlanCard
                     title="Basic Plan"
@@ -525,7 +538,7 @@ const ChoosePlanScreen = ({ navigation, route }) => {
                     onSelect={() => handlePlanSelect('premium')}
                 />
 
-                {/* Custom */}
+                {/* Custom Plan */}
                 <CustomPlan
                     isSelected={selectedPlan === 'custom'}
                     onSelect={() => handlePlanSelect('custom')}
@@ -533,71 +546,16 @@ const ChoosePlanScreen = ({ navigation, route }) => {
                     setCustomResponses={setCustomResponses}
                 />
 
-                {/* Features Comparison */}
-                <View style={styles.fullWidthItem}>
-                    <View style={styles.featuresCard}>
-                        <Text style={styles.featuresTitle}>All Plans Include:</Text>
-                        <View style={styles.featuresList}>
-                            <View style={styles.featureItem}>
-                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
-                                <Text style={styles.featureText}>Unlimited Questions</Text>
-                            </View>
-                            <View style={styles.featureItem}>
-                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
-                                <Text style={styles.featureText}>Real-time Analytics</Text>
-                            </View>
-                            <View style={styles.featureItem}>
-                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
-                                <Text style={styles.featureText}>Data Export (CSV/Excel)</Text>
-                            </View>
-                            <View style={styles.featureItem}>
-                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
-                                <Text style={styles.featureText}>24/7 Customer Support</Text>
-                            </View>
-                            <View style={styles.featureItem}>
-                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
-                                <Text style={styles.featureText}>Mobile Responsive</Text>
-                            </View>
-                            <View style={styles.featureItem}>
-                                <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
-                                <Text style={styles.featureText}>Secure Data Storage</Text>
-                            </View>
-                        </View>
-                    </View>
-                </View>
-
-                {/* FAQ Section */}
-                <View style={styles.fullWidthItem}>
-                    <View style={styles.faqCard}>
-                        <Text style={styles.faqTitle}>Frequently Asked Questions</Text>
-                        <View style={styles.faqItem}>
-                            <Text style={styles.faqQuestion}>Can I upgrade my plan later?</Text>
-                            <Text style={styles.faqAnswer}>Yes, you can upgrade at any time. The difference will be prorated.</Text>
-                        </View>
-                        <View style={styles.faqItem}>
-                            <Text style={styles.faqQuestion}>What happens if I exceed my response limit?</Text>
-                            <Text style={styles.faqAnswer}>You'll be notified and can upgrade to a higher plan or purchase additional responses.</Text>
-                        </View>
-                        <View style={styles.faqItem}>
-                            <Text style={styles.faqQuestion}>Is there a refund policy?</Text>
-                            <Text style={styles.faqAnswer}>Yes, we offer a 14-day money-back guarantee for all plans.</Text>
-                        </View>
-                        <View style={styles.faqItem}>
-                            <Text style={styles.faqQuestion}>How are responses counted?</Text>
-                            <Text style={styles.faqAnswer}>Each completed survey submission counts as one response.</Text>
-                        </View>
-                    </View>
-                </View>
-
-                {/* Notes Section */}
+                {/* ✅ Simple Note at Bottom */}
                 <View style={styles.fullWidthItem}>
                     <View style={styles.notesCard}>
                         <MaterialCommunityIcons name="lightbulb-outline" size={20} color="#FF7E1D" />
                         <Text style={styles.notesText}>
-                            <Text style={styles.notesBold}>Note:</Text> After publishing, your survey will be live immediately. You can track responses and analytics from the Published Surveys section.
+                            <Text style={styles.notesBold}>Note:</Text> After publishing, your survey will be live immediately. You can track responses from the Published Surveys section.
                         </Text>
                     </View>
                 </View>
+
             </ScrollView>
 
             {/* Payment Bar - FIXED at the bottom */}
@@ -683,65 +641,11 @@ const styles = StyleSheet.create({
         width: '100%',
         paddingHorizontal: 0,
     },
-    // Survey Info Card
-    surveyInfoCard: {
-        backgroundColor: "#fff",
-        padding: 20,
-        borderRadius: 16,
-        marginBottom: 16,
-        elevation: 3,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-        borderLeftWidth: 4,
-        borderLeftColor: "#FF7E1D",
-    },
-    surveyInfoHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    surveyInfoTitle: {
-        fontSize: 16,
-        fontWeight: "700",
-        color: "#FF7E1D",
-        marginLeft: 8,
-    },
-    surveyTitle: {
-        fontSize: 18,
-        fontWeight: "800",
-        color: "#222",
-        marginBottom: 6,
-    },
-    surveyDescription: {
-        fontSize: 14,
-        color: "#666",
-        lineHeight: 20,
-        marginBottom: 12,
-    },
-    surveyMeta: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 12,
-    },
-    metaItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: "#F8F9FA",
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 12,
-    },
-    metaText: {
-        fontSize: 12,
-        color: "#666",
-        marginLeft: 6,
-    },
-    headerCard: {
+    // Features Card - SAME AS BEFORE
+    featuresCard: {
         backgroundColor: "#fff",
         padding: 16,
-        borderRadius: 16,
+        borderRadius: 0,
         marginBottom: 16,
         elevation: 2,
         shadowColor: "#000",
@@ -749,16 +653,48 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.05,
         shadowRadius: 8,
     },
-    headerCardTitle: {
+    featuresTitle: {
         fontSize: 18,
         fontWeight: "700",
         color: "#333",
+        marginBottom: 10,
+    },
+    featuresList: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+    },
+    featureItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        width: '48%',
         marginBottom: 6,
     },
-    headerCardSubtitle: {
-        fontSize: 13,
+    featureText: {
+        fontSize: 12,
         color: "#666",
+        marginLeft: 6,
+    },
+    // Notes Card - SAME AS BEFORE
+    notesCard: {
+        backgroundColor: "#FFF9E6",
+        padding: 16,
+        borderRadius: 12,
+        marginTop: 16,
+        borderWidth: 1,
+        borderColor: "#FFE8B3",
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+    },
+    notesText: {
+        fontSize: 13,
+        color: "#664D00",
         lineHeight: 18,
+        marginLeft: 10,
+        flex: 1,
+    },
+    notesBold: {
+        fontWeight: '700',
     },
     cardOuterWrapper: {
         marginBottom: 16,
@@ -922,95 +858,6 @@ const styles = StyleSheet.create({
         fontWeight: "700",
         fontSize: 15,
         textAlign: "center",
-    },
-    featuresCard: {
-        backgroundColor: "#fff",
-        padding: 16,
-        borderRadius: 16,
-        marginTop: 8,
-        elevation: 2,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-    },
-    featuresTitle: {
-        fontSize: 16,
-        fontWeight: "700",
-        color: "#333",
-        marginBottom: 10,
-    },
-    featuresList: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        justifyContent: 'space-between',
-    },
-    featureItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        width: '48%',
-        marginBottom: 6,
-    },
-    featureText: {
-        fontSize: 12,
-        color: "#666",
-        marginLeft: 6,
-    },
-    // FAQ Styles
-    faqCard: {
-        backgroundColor: "#fff",
-        padding: 16,
-        borderRadius: 16,
-        marginTop: 16,
-        elevation: 2,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-    },
-    faqTitle: {
-        fontSize: 16,
-        fontWeight: "700",
-        color: "#333",
-        marginBottom: 12,
-    },
-    faqItem: {
-        marginBottom: 12,
-        paddingBottom: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: "#f0f0f0",
-    },
-    faqQuestion: {
-        fontSize: 14,
-        fontWeight: "600",
-        color: "#444",
-        marginBottom: 4,
-    },
-    faqAnswer: {
-        fontSize: 13,
-        color: "#666",
-        lineHeight: 18,
-    },
-    // Notes Card
-    notesCard: {
-        backgroundColor: "#FFF9E6",
-        padding: 16,
-        borderRadius: 12,
-        marginTop: 16,
-        borderWidth: 1,
-        borderColor: "#FFE8B3",
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-    },
-    notesText: {
-        fontSize: 13,
-        color: "#664D00",
-        lineHeight: 18,
-        marginLeft: 10,
-        flex: 1,
-    },
-    notesBold: {
-        fontWeight: '700',
     },
     // --- PAYMENT BAR STYLES ---
     paymentBarContainerFixed: { 

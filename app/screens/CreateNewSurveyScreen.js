@@ -3,10 +3,27 @@ import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput, Switch
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
+import { supabase } from '../../supabaseClient'; // ✅ Step 5: Import Supabase Client
 
-// ... (all your existing imports and data arrays remain the same)
+// --- HELPER FUNCTIONS --- ✅ Step 1: Helper Function Add Karein
+const removeUndefinedValues = (obj) => {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  const cleanObj = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined && value !== null) {
+      cleanObj[key] = value === Object(value) ? removeUndefinedValues(value) : value;
+    }
+  }
+  return cleanObj;
+};
+
+const validateSurveyData = (data) => {
+  if (!data || typeof data !== 'object') return false;
+  if (!data.title || data.title.trim() === "") return false;
+  return true;
+};
 
 // --- Survey Categories Data ---
 const surveyCategories = [
@@ -300,42 +317,105 @@ const CreateNewSurveyScreen = ({ navigation, route }) => {
         questions: {}
     });
 
-// Load draft data if provided
-// Load draft data if provided
+    // Load draft data if provided
+    // Load draft data if provided
 useEffect(() => {
-  const loadDraftData = async () => {
-    // Check if we have draft data from navigation (React Navigation v5/v6)
-    const draftData = route.params?.draftData;
-    
-    if (draftData) {
-      setFormHeading(draftData.formHeading);
-      setFormDescription(draftData.formDescription);
-      setSelectedCategory(draftData.selectedCategory);
-      setIsPublicForm(draftData.isPublicForm);
-      setQuestions(draftData.questions);
-      
-      // Set demographic filters
-      if (draftData.demographicFilters) {
-        setSelectedGender(draftData.demographicFilters.gender);
-        setSelectedAge(draftData.demographicFilters.age);
-        setSelectedMaritalStatus(draftData.demographicFilters.maritalStatus);
-        setSelectedLocation(draftData.demographicFilters.location);
-        setSelectedEducation(draftData.demographicFilters.education);
-        setSelectedProfession(draftData.demographicFilters.profession);
-        setSelectedSalary(draftData.demographicFilters.salary);
-        setSelectedInterests(draftData.demographicFilters.interests || []);
-      }
-    }
-  };
+    const loadDraftData = async () => {
+        const draftData = route.params?.draftData;
+        
+        if (draftData) {
+            console.log('🔍 Loading draft data for editing:', draftData);
+            console.log('📋 Questions count:', draftData.questions?.length);
+            
+            setFormHeading(draftData.formHeading || '');
+            setFormDescription(draftData.formDescription || '');
+            setSelectedCategory(draftData.selectedCategory || null);
+            setIsPublicForm(draftData.isPublicForm || false);
+            
+            // ✅ FIX: Transform questions to match expected format
+            const transformedQuestions = (draftData.questions || []).map((question, index) => {
+                // Debug current question
+                console.log(`Question ${index}:`, {
+                    options: question.options,
+                    optionsType: typeof question.options,
+                    isArray: Array.isArray(question.options)
+                });
+                
+                // Fix options - convert object to array if needed
+                let optionsArray = [];
+                if (question.options) {
+                    if (Array.isArray(question.options)) {
+                        optionsArray = question.options;
+                    } else if (typeof question.options === 'object') {
+                        // Convert object {0: "Option 1", 1: "Option 2"} to array
+                        optionsArray = Object.values(question.options);
+                    } else if (typeof question.options === 'string') {
+                        try {
+                            optionsArray = JSON.parse(question.options);
+                        } catch (e) {
+                            optionsArray = [question.options];
+                        }
+                    }
+                }
+                
+                // Ensure minimum 3 options for question types that need options
+                if (['multiple_choice', 'checkboxes', 'dropdown'].includes(question.questionType)) {
+                    while (optionsArray.length < 3) {
+                        optionsArray.push('');
+                    }
+                } else {
+                    // For other question types, ensure at least empty array
+                    if (!Array.isArray(optionsArray)) {
+                        optionsArray = [];
+                    }
+                }
+                
+                return {
+                    id: question.id || index + 1,
+                    questionText: question.questionText || '',
+                    questionType: question.questionType || 'multiple_choice',
+                    options: optionsArray,
+                    isRequired: question.isRequired !== undefined ? question.isRequired : true,
+                    media: question.media || null
+                };
+            });
+            
+            // Ensure at least one question exists
+            if (transformedQuestions.length === 0) {
+                transformedQuestions.push({
+                    id: 1,
+                    questionText: '',
+                    questionType: 'multiple_choice',
+                    options: ['', '', ''],
+                    isRequired: true,
+                    media: null
+                });
+            }
+            
+            console.log('✅ Transformed questions:', transformedQuestions);
+            setQuestions(transformedQuestions);
+            
+            // Set demographic filters
+            if (draftData.demographicFilters) {
+                setSelectedGender(draftData.demographicFilters.gender);
+                setSelectedAge(draftData.demographicFilters.age);
+                setSelectedMaritalStatus(draftData.demographicFilters.maritalStatus);
+                setSelectedLocation(draftData.demographicFilters.location);
+                setSelectedEducation(draftData.demographicFilters.education);
+                setSelectedProfession(draftData.demographicFilters.profession);
+                setSelectedSalary(draftData.demographicFilters.salary);
+                setSelectedInterests(draftData.demographicFilters.interests || []);
+            }
+        }
+    };
 
-  loadDraftData();
+    loadDraftData();
 }, [route.params]);
-    
+
     const handleCategorySelect = (category) => {
         setSelectedCategory(category);
         setShowCategoryDropdown(false);
         
-        // Clear validation error when category is selected
         if (validationErrors.category) {
             setValidationErrors(prev => ({ ...prev, category: false }));
         }
@@ -347,7 +427,7 @@ useEffect(() => {
             try {
                 const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
                 if (status !== 'granted') {
-                    // Inform user that permission is needed; keep UI functional without permission.
+                    // Inform user that permission is needed
                 }
             } catch (e) {
                 // ignore errors
@@ -355,8 +435,8 @@ useEffect(() => {
         })();
     }, []);
 
-    // Validate form function
-    const validateForm = () => {
+    // Validate form for preview
+    const validateFormForPreview = () => {
         const errors = {
             formHeading: !formHeading.trim(),
             formDescription: !formDescription.trim(),
@@ -364,7 +444,7 @@ useEffect(() => {
             questions: {}
         };
 
-        // Validate each question
+        // Validate each question (only basic validation for preview)
         questions.forEach((question, index) => {
             const questionErrors = {};
             
@@ -670,7 +750,6 @@ useEffect(() => {
     // delete question handler
     const removeQuestion = (indexToRemove) => {
         if (questions.length === 1) {
-            // If only one question exists, reset it to default empty question instead of removing entirely
             const resetQuestion = {
                 id: 1,
                 questionText: '',
@@ -682,7 +761,6 @@ useEffect(() => {
             setQuestions([resetQuestion]);
             setCurrentQuestionIndex(0);
             
-            // Clear validation for removed question
             setValidationErrors(prev => ({
                 ...prev,
                 questions: {}
@@ -691,15 +769,12 @@ useEffect(() => {
         }
 
         const updated = questions.filter((_, idx) => idx !== indexToRemove);
-        // Re-assign sequential ids
         const reId = updated.map((q, idx) => ({ ...q, id: idx + 1 }));
         setQuestions(reId);
 
-        // Update validation state
         const newValidationErrors = { ...validationErrors.questions };
         delete newValidationErrors[indexToRemove];
         
-        // Reindex remaining questions in validation errors
         const reindexedErrors = {};
         Object.keys(newValidationErrors).forEach(key => {
             const oldIndex = parseInt(key);
@@ -715,7 +790,6 @@ useEffect(() => {
             questions: reindexedErrors
         }));
 
-        // Update currentQuestionIndex safely
         if (indexToRemove === currentQuestionIndex) {
             const newIndex = Math.max(0, currentQuestionIndex - 1);
             setCurrentQuestionIndex(newIndex);
@@ -738,7 +812,6 @@ useEffect(() => {
         const interestString = `${selectedMainCategory.name} - ${subCategory}`;
         
         setSelectedInterests(prev => {
-            // Check if already exists
             if (prev.includes(interestString)) {
                 return prev.filter(item => item !== interestString);
             }
@@ -762,7 +835,7 @@ useEffect(() => {
         return `${selectedInterests.length} interests selected`;
     };
 
-    // Option letter colors to visually match the screenshot
+    // Option letter colors
     const optionBadgeColors = ['#00A0FF', '#33C37D', '#8B4DFF', '#FF94B0', '#FFB84D', '#7FB3FF'];
 
     // --- Image/Icon handlers ---
@@ -825,32 +898,161 @@ useEffect(() => {
         setShowIconPickerModal(false);
     };
 
-    // --- SAVE DRAFT FUNCTIONALITY ---
-    const handleSaveDraft = async () => {
-        // For drafts, we can be more lenient, but still show warnings
-        const hasCriticalErrors = !formHeading.trim() || !formDescription.trim() || !selectedCategory;
-        
-        if (hasCriticalErrors) {
-            Alert.alert(
-                "Incomplete Form",
-                "Your form is missing critical information (heading, description, or category). You can still save as draft, but these fields are required to publish later.",
-                [
-                    { text: "Cancel", style: "cancel" },
-                    { 
-                        text: "Save Anyway", 
-                        onPress: () => saveDraftToStorage()
-                    }
-                ]
-            );
-        } else {
-            saveDraftToStorage();
+    // --- SAVE DRAFT TO SUPABASE --- ✅ Step 2: COMPLETELY REPLACE Karein
+    const saveDraftToSupabase = async () => {
+        try {
+            console.log('Starting to save draft to Supabase...');
+            
+            // Prepare demographic filters based on form type
+            let demographicFilters = {};
+            
+            if (!isPublicForm) {
+                // Private form - include all selected filters (remove undefined)
+                demographicFilters = removeUndefinedValues({
+                    gender: selectedGender,
+                    age: selectedAge,
+                    marital_status: selectedMaritalStatus,
+                    location: selectedLocation,
+                    education: selectedEducation,
+                    profession: selectedProfession,
+                    salary: selectedSalary,
+                    interests: selectedInterests.length > 0 ? selectedInterests : []
+                });
+            }
+
+            // Prepare survey data for Supabase (REMOVE UNDEFINED VALUES)
+            const surveyData = removeUndefinedValues({
+                title: formHeading.trim() || "Untitled Survey",
+                description: formDescription.trim() || "No description",
+                category: selectedCategory,
+                is_public_form: isPublicForm,
+                plan: 'basic',
+                plan_name: 'Basic Plan',
+                questions: questions.map(q => removeUndefinedValues(q)), // Clean each question too
+                demographic_filters: Object.keys(demographicFilters).length > 0 ? demographicFilters : null,
+                is_draft: true,
+                status: 'draft',
+                responses_collected: 0,
+                total_responses: 100,
+                price: 300,
+                user_id: 'user_001', // TODO: Replace with actual user ID
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            });
+
+            // IMPORTANT: Final validation check
+            if (!surveyData.title || !surveyData.category) {
+                throw new Error("Title and category are required for draft");
+            }
+
+            console.log('Survey data prepared:', JSON.stringify(surveyData, null, 2));
+
+            // ✅ FIXED: Use Supabase client instead of direct fetch
+            const { data, error } = await supabase
+                .from('surveys')
+                .insert([surveyData])
+                .select(); // Return the inserted data
+
+            if (error) {
+                console.error('Supabase Insert Error:', error);
+                throw new Error(error.message || 'Failed to save draft');
+            }
+
+            console.log('Draft saved successfully! ID:', data[0]?.id);
+            return data[0]?.id; // Return the ID of saved draft
+            
+        } catch (error) {
+            console.error('Error saving draft to Supabase:', error);
+            throw error;
         }
     };
 
-    const saveDraftToStorage = async () => {
+    // --- MANUAL SAVE DRAFT FUNCTIONALITY --- ✅ Step 3: Update Karein
+    const handleSaveDraft = async () => {
         try {
-            const draftData = {
-                id: Date.now().toString(), // Unique ID for the draft
+            console.log('=== SAVE DRAFT STARTED ===');
+            console.log('Form Heading:', formHeading);
+            console.log('Category:', selectedCategory);
+            console.log('Questions count:', questions.length);
+            
+            // Validate critical fields
+            if (!formHeading.trim() || !selectedCategory) {
+                Alert.alert(
+                    "Incomplete Form",
+                    "Please fill at least:\n• Form Heading\n• Category\n\nYou can save as draft, but these are required to publish.",
+                    [
+                        { text: "Cancel", style: "cancel" },
+                        { 
+                            text: "Save Anyway", 
+                            onPress: async () => {
+                                try {
+                                    console.log('Saving draft without required fields...');
+                                    const draftId = await saveDraftToSupabase();
+                                    console.log('Draft saved with ID:', draftId);
+                                    Alert.alert(
+                                        "Draft Saved", 
+                                        "Draft saved successfully!",
+                                        [{ 
+                                            text: "OK", 
+                                            onPress: () => navigation.navigate('CreatorDashboard')
+                                        }]
+                                    );
+                                } catch (error) {
+                                    console.error('Save error details:', error);
+                                    Alert.alert("Error", `Failed to save: ${error.message}`);
+                                }
+                            }
+                        }
+                    ]
+                );
+            } else {
+                const draftId = await saveDraftToSupabase();
+                console.log('Draft saved with ID:', draftId);
+                Alert.alert(
+                    "Draft Saved", 
+                    "Draft saved successfully!",
+                    [{ 
+                        text: "OK", 
+                        onPress: () => navigation.navigate('CreatorDashboard')
+                    }]
+                );
+            }
+            
+        } catch (error) {
+            console.error('=== SAVE DRAFT ERROR ===');
+            console.error('Error message:', error.message);
+            console.error('Full error:', error);
+            Alert.alert("Error", `Failed to save draft: ${error.message}`);
+        }
+    };
+
+    // --- PREVIEW WITH AUTO-DRAFT-SAVE FUNCTIONALITY --- ✅ Step 4: Update Karein
+    const handlePreview = async () => {
+        // First validate the form
+        if (!validateFormForPreview()) {
+            Alert.alert(
+                "Validation Error",
+                "Please fix the following issues:\n\n" +
+                (validationErrors.formHeading ? "• Form heading cannot be empty\n" : "") +
+                (validationErrors.formDescription ? "• Form description cannot be empty\n" : "") +
+                (validationErrors.category ? "• Category must be selected\n" : "") +
+                (Object.keys(validationErrors.questions).length > 0 ? "• Some questions have empty fields or options\n" : ""),
+                [{ text: "OK" }]
+            );
+            return;
+        }
+
+        try {
+            // Auto-save draft to Supabase before preview
+            const draftId = await saveDraftToSupabase();
+            
+            if (!draftId) {
+                throw new Error("Draft saved but no ID returned");
+            }
+            
+            // Prepare form data with the draft ID
+            const formData = {
+                id: draftId,
                 formHeading: formHeading.trim() || "Untitled Survey",
                 formDescription: formDescription.trim() || "No description",
                 selectedCategory,
@@ -866,77 +1068,28 @@ useEffect(() => {
                     salary: selectedSalary,
                     interests: selectedInterests
                 },
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
+                isFromDraft: true
             };
 
-            // Get existing drafts
-            const existingDrafts = await AsyncStorage.getItem('surveyDrafts');
-            const drafts = existingDrafts ? JSON.parse(existingDrafts) : [];
-            
-            // Add new draft
-            drafts.push(draftData);
-            
-            // Save back to storage
-            await AsyncStorage.setItem('surveyDrafts', JSON.stringify(drafts));
-            
-            Alert.alert(
-                "Success", 
-                "Draft saved successfully!",
-                [
-                    { 
-                        text: "OK", 
-                        onPress: () => navigation.navigate('CreatorDashboard')
-                    }
-                ]
-            );
+            // Navigate to Preview screen
+            navigation.navigate('PreviewScreen', { 
+                formData,
+                draftId: draftId
+            });
             
         } catch (error) {
-            console.error('Error saving draft:', error);
-            Alert.alert("Error", "Failed to save draft. Please try again.");
-        }
-    };
-
-    // --- PREVIEW FUNCTIONALITY ---
-    const handlePreview = () => {
-        if (!validateForm()) {
+            console.error('Error saving draft for preview:', error);
             Alert.alert(
-                "Validation Error",
-                "Please fix the following issues:\n\n" +
-                (validationErrors.formHeading ? "• Form heading cannot be empty\n" : "") +
-                (validationErrors.formDescription ? "• Form description cannot be empty\n" : "") +
-                (validationErrors.category ? "• Category must be selected\n" : "") +
-                (Object.keys(validationErrors.questions).length > 0 ? "• Some questions have empty fields or options\n" : ""),
-                [{ text: "OK" }]
+                "Save Failed", 
+                `Could not save draft: ${error.message}\n\nPlease try saving manually first.`
             );
-            return;
         }
-
-        const formData = {
-            formHeading,
-            formDescription,
-            selectedCategory,
-            isPublicForm,
-            questions,
-            demographicFilters: {
-                gender: selectedGender,
-                age: selectedAge,
-                maritalStatus: selectedMaritalStatus,
-                location: selectedLocation,
-                education: selectedEducation,
-                profession: selectedProfession,
-                salary: selectedSalary,
-                interests: selectedInterests
-            }
-        };
-
-        navigation.navigate('PreviewScreen', { formData });
     };
 
     return (
         <View style={styles.container}>
             
-            {/* Back Button - Still Fixed */}
+            {/* Back Button */}
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
                 <MaterialIcons name="arrow-back" size={28} color="#444" />
             </TouchableOpacity>
@@ -1036,7 +1189,7 @@ useEffect(() => {
                         />
                     </View>
 
-                    {/* Demographic Filters Section (Nested Card) */}
+                    {/* Demographic Filters Section */}
                     <View style={[
                         styles.nestedCard,
                         isPublicForm && styles.lockedSection
@@ -1064,9 +1217,7 @@ useEffect(() => {
                             </View>
                         ) : (
                             <>
-                                {/* 🛑 UPDATED FILTER ROWS WITH DROPDOWNS 🛑 */}
-                                
-                                {/* Row 1: Gender & Age Range */}
+                                {/* Demographic Filter Rows */}
                                 <View style={styles.filterRow}>
                                     <View style={styles.filterInputGroup}>
                                         <Text style={styles.filterLabel}>Gender</Text>
@@ -1076,7 +1227,8 @@ useEffect(() => {
                                             showGenderDropdown,
                                             setShowGenderDropdown,
                                             createDropdownHandler(setSelectedGender, setShowGenderDropdown),
-                                            "Any"
+                                            "Any",
+                                            isPublicForm
                                         )}
                                     </View>
                                     <View style={styles.filterInputGroup}>
@@ -1087,12 +1239,12 @@ useEffect(() => {
                                             showAgeDropdown,
                                             setShowAgeDropdown,
                                             createDropdownHandler(setSelectedAge, setShowAgeDropdown),
-                                            "Any"
+                                            "Any",
+                                            isPublicForm
                                         )}
                                     </View>
                                 </View>
                                 
-                                {/* Row 2: Marital Status & Location */}
                                 <View style={styles.filterRow}>
                                     <View style={styles.filterInputGroup}>
                                         <Text style={styles.filterLabel}>Marital Status</Text>
@@ -1102,7 +1254,8 @@ useEffect(() => {
                                             showMaritalStatusDropdown,
                                             setShowMaritalStatusDropdown,
                                             createDropdownHandler(setSelectedMaritalStatus, setShowMaritalStatusDropdown),
-                                            "Any"
+                                            "Any",
+                                            isPublicForm
                                         )}
                                     </View>
                                     <View style={styles.filterInputGroup}>
@@ -1113,12 +1266,12 @@ useEffect(() => {
                                             showLocationDropdown,
                                             setShowLocationDropdown,
                                             createDropdownHandler(setSelectedLocation, setShowLocationDropdown),
-                                            "Any"
+                                            "Any",
+                                            isPublicForm
                                         )}
                                     </View>
                                 </View>
                                 
-                                {/* Row 3: Education & Profession */}
                                 <View style={styles.filterRow}>
                                     <View style={styles.filterInputGroup}>
                                         <Text style={styles.filterLabel}>Education</Text>
@@ -1128,7 +1281,8 @@ useEffect(() => {
                                             showEducationDropdown,
                                             setShowEducationDropdown,
                                             createDropdownHandler(setSelectedEducation, setShowEducationDropdown),
-                                            "Any"
+                                            "Any",
+                                            isPublicForm
                                         )}
                                     </View>
                                     <View style={styles.filterInputGroup}>
@@ -1139,12 +1293,12 @@ useEffect(() => {
                                             showProfessionDropdown,
                                             setShowProfessionDropdown,
                                             createDropdownHandler(setSelectedProfession, setShowProfessionDropdown),
-                                            "Any"
+                                            "Any",
+                                            isPublicForm
                                         )}
                                     </View>
                                 </View>
                                 
-                                {/* Row 4: Salary Range & Interest & Hobbies */}
                                 <View style={styles.filterRow}>
                                     <View style={styles.filterInputGroup}>
                                         <Text style={styles.filterLabel}>Salary Range</Text>
@@ -1154,30 +1308,36 @@ useEffect(() => {
                                             showSalaryDropdown,
                                             setShowSalaryDropdown,
                                             createDropdownHandler(setSelectedSalary, setShowSalaryDropdown),
-                                            "Any"
+                                            "Any",
+                                            isPublicForm
                                         )}
                                     </View>
                                     <View style={styles.filterInputGroup}>
                                         <Text style={styles.filterLabel}>Interest & Hobbies</Text>
                                         <View style={styles.dropdownContainer}>
                                             <TouchableOpacity 
-                                                style={styles.dropdownInput}
+                                                style={[styles.dropdownInput, isPublicForm && styles.disabledDropdown]}
                                                 onPress={() => {
+                                                    if (isPublicForm) return;
                                                     closeAllDropdowns();
                                                     setShowInterestsDropdown(!showInterestsDropdown);
                                                 }}
+                                                disabled={isPublicForm}
                                             >
-                                                <Text style={selectedInterests.length > 0 ? styles.dropdownSelected : styles.dropdownPlaceholder}>
+                                                <Text style={[
+                                                    selectedInterests.length > 0 ? styles.dropdownSelected : styles.dropdownPlaceholder,
+                                                    isPublicForm && styles.disabledText
+                                                ]}>
                                                     {getSelectedInterestsDisplay()}
                                                 </Text>
                                                 <MaterialIcons 
                                                     name={showInterestsDropdown ? "keyboard-arrow-up" : "keyboard-arrow-down"} 
                                                     size={24} 
-                                                    color="#aaa" 
+                                                    color={isPublicForm ? "#ccc" : "#aaa"} 
                                                 />
                                             </TouchableOpacity>
 
-                                            {showInterestsDropdown && (
+                                            {showInterestsDropdown && !isPublicForm && (
                                                 <View style={styles.dropdownOptions}>
                                                     <ScrollView 
                                                         style={styles.dropdownScrollView}
@@ -1202,7 +1362,7 @@ useEffect(() => {
                                         </View>
 
                                         {/* Selected Interests Chips */}
-                                        {selectedInterests.length > 0 && (
+                                        {selectedInterests.length > 0 && !isPublicForm && (
                                             <View style={styles.selectedInterestsContainer}>
                                                 {selectedInterests.map((interest, index) => (
                                                     <View key={index} style={styles.interestChip}>
@@ -1216,8 +1376,6 @@ useEffect(() => {
                                         )}
                                     </View>
                                 </View>
-                                
-                                {/* 🛑 UPDATED FILTER ROWS END HERE 🛑 */}
 
                                 {/* Estimated Reach Badge */}
                                 <View style={styles.reachBadge}>
@@ -1231,7 +1389,7 @@ useEffect(() => {
                     </View>
                 </View>
 
-                {/* --- QUESTION BUILDER SECTION (Example Question) --- */}
+                {/* --- QUESTION BUILDER SECTION --- */}
                 <View style={[styles.sectionCard, {marginTop: 20}]}>
                     <View style={styles.sectionHeaderContainer}>
                         <MaterialCommunityIcons name="help-circle-outline" size={24} color="#FF7800" />
@@ -1297,7 +1455,7 @@ useEffect(() => {
                                 </Text>
                             </View>
 
-                            {/* wired delete button to remove the current question */}
+                            {/* Delete Button */}
                             <TouchableOpacity style={styles.deleteButton} onPress={() => removeQuestion(currentQuestionIndex)}>
                                 <MaterialIcons name="delete-outline" size={22} color="#888" />
                             </TouchableOpacity>
@@ -1434,6 +1592,7 @@ useEffect(() => {
                     <TouchableOpacity style={styles.previewButton} onPress={handlePreview}>
                         <MaterialIcons name="visibility" size={20} color="#666" />
                         <Text style={styles.previewButtonText}>Preview Form</Text>
+                        <Text style={styles.previewNoteText}></Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity style={styles.saveDraftButton} onPress={handleSaveDraft}>
@@ -2234,18 +2393,18 @@ const styles = StyleSheet.create({
     },
 
     // media preview styles
-   mediaPreviewRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-    borderRadius: 10,
-    backgroundColor: '#fff',
-    marginBottom: 12,
-    overflow: 'hidden',       // <- ensures children don't render outside box
-},
+    mediaPreviewRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 8,
+        borderWidth: 1,
+        borderColor: '#F0F0F0',
+        borderRadius: 10,
+        backgroundColor: '#fff',
+        marginBottom: 12,
+        overflow: 'hidden',
+    },
     mediaPreviewImage: {
         width: 64,
         height: 64,
@@ -2260,30 +2419,29 @@ const styles = StyleSheet.create({
         alignItems: 'center'
     },
     changeMediaButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,    // reduced horizontal padding
-    minWidth: 72,             // ensure touch target but keep compact
-    height: 36,               // fixed height so buttons stay aligned
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFF2E6',
-    borderWidth: 1,
-    borderColor: '#FFD464',
-    flexShrink: 0,            // don't shrink below minWidth
-},
-
-   changeMediaButtonText: {
-    color: '#FF7800',
-    fontWeight: '700',
-    fontSize: 14,
-},
-mediaButtonsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',         // allow wrapping if there's not enough horizontal space
-    marginTop: 8,
-    alignItems: 'center',
-},
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        minWidth: 72,
+        height: 36,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#FFF2E6',
+        borderWidth: 1,
+        borderColor: '#FFD464',
+        flexShrink: 0,
+    },
+    changeMediaButtonText: {
+        color: '#FF7800',
+        fontWeight: '700',
+        fontSize: 14,
+    },
+    mediaButtonsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginTop: 8,
+        alignItems: 'center',
+    },
     descriptionInput: {
         borderWidth: 1,
         borderColor: '#F0F0F0',
@@ -2340,6 +2498,12 @@ mediaButtonsRow: {
         fontWeight: 'bold',
         fontSize: 16,
         marginLeft: 10,
+    },
+    previewNoteText: {
+        fontSize: 11,
+        color: '#FF7800',
+        marginLeft: 5,
+        fontStyle: 'italic',
     },
     saveDraftButton: {
         flexDirection: 'row',
