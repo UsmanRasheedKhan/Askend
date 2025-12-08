@@ -128,8 +128,9 @@ const SuccessRewardModal = ({ visible, onClose, awardedAmount, navigation }) => 
         // Navigate to Filler Dashboard and pass the reward
         navigation.navigate('FillerDashboard', {
             isProfileComplete: true,        // Tells the dashboard the profile is done
-            awardedAmount: awardedAmount,   // The reward amount (Rs 50)
+            awardedAmount: 50,   // The reward amount (Rs 50)
             showSurveyUnlockPopup: true,    // Show the special modal/message on dashboard
+            showGreenProfileCard: true, // ✅ NEW: Green card temporary show karega
         });
     };
 
