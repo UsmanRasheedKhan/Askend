@@ -11,8 +11,9 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
+import { supabase } from '../../supabaseClient';
 
-// --- SUPABASE CONFIG ---
+// Supabase Configuration
 const SUPABASE_URL = 'https://oyavjqycsjfcnzlshdsu.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95YXZqcXljc2pmY256bHNoZHN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxNTgwMjcsImV4cCI6MjA3NTczNDAyN30.22cwyIWSBmhLefCvobdbH42cPSTnw_NmSwbwaYvyLy4';
 
@@ -30,20 +31,29 @@ const PublishedSurveysScreen = () => {
     }
   }, [isFocused]);
 
-  // ✅ Load ONLY published surveys
   const loadPublishedSurveys = async () => {
     try {
       setRefreshing(true);
       
-      console.log('Fetching ONLY PUBLISHED surveys from Supabase...');
+      // ✅ GET JWT TOKEN
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
       
+      if (!token) {
+        Alert.alert("Session Expired", "Please sign in again");
+        return;
+      }
+      
+      console.log('Fetching published surveys with JWT token...');
+      
+      // ✅ USE TOKEN IN REST API
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/surveys?select=*&status=eq.published&order=created_at.desc`, 
         {
           method: 'GET',
           headers: {
             'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Authorization': `Bearer ${token}`, // ✅ IMPORTANT
             'Content-Type': 'application/json'
           }
         }
@@ -53,12 +63,12 @@ const PublishedSurveysScreen = () => {
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Supabase Error Response:', errorText);
+        console.error('Error Response:', errorText);
         throw new Error(`Failed to fetch surveys: ${response.status}`);
       }
 
       const surveys = await response.json();
-      console.log('✅ PUBLISHED Surveys fetched:', surveys.length);
+      console.log('✅ Published Surveys fetched:', surveys.length);
       
       const transformedSurveys = surveys.map(survey => ({
         id: survey.id.toString(),
@@ -77,6 +87,7 @@ const PublishedSurveysScreen = () => {
         updatedAt: survey.updated_at || new Date().toISOString(),
         status: survey.status || 'published',
         isDraft: survey.is_draft || false,
+        user_id: survey.user_id, // Added for debugging
         // Add these for preview compatibility
         formHeading: survey.title || "Untitled Survey",
         formDescription: survey.description || "No description provided"
@@ -88,7 +99,7 @@ const PublishedSurveysScreen = () => {
       console.error('Error loading published surveys:', error);
       Alert.alert(
         "Connection Error", 
-        `Failed to load surveys from database.\n\nError: ${error.message}\n\nPlease check your internet connection and Supabase configuration.`
+        `Failed to load surveys from database.\n\nError: ${error.message}`
       );
       setPublishedSurveys([]);
     } finally {
@@ -168,31 +179,16 @@ const PublishedSurveysScreen = () => {
     return '#F44336';
   };
 
-  // ✅ NEW FUNCTION: Handle card click to view survey
   const handleViewSurvey = (survey) => {
     console.log('Viewing published survey:', survey.title);
     
-    // Prepare data for PreviewScreen
-    const previewData = {
-      id: survey.id,
-      draftId: survey.id, // Using survey id as draftId for compatibility
-      formHeading: survey.title,
-      formDescription: survey.description,
-      questions: survey.questions || [],
-      // Add other fields if needed for PreviewScreen
-      category: survey.category,
-      plan: survey.plan,
-      isPublicForm: survey.isPublicForm
-    };
-    
-    // Navigate to PreviewScreen
-    // Replace the navigation line in handleViewSurvey function:
-navigation.navigate('ViewPublishedSurveyScreen', { 
-  survey: survey
-});
+    // Navigate to ViewPublishedSurveyScreen
+    navigation.navigate('ViewPublishedSurveyScreen', { 
+      survey: survey
+    });
   };
 
-  const handleDeleteSurvey = (survey) => {
+  const handleDeleteSurvey = async (survey) => {
     Alert.alert(
       "Delete Survey",
       `Are you sure you want to delete "${survey.title}"? This action cannot be undone.`,
@@ -201,42 +197,48 @@ navigation.navigate('ViewPublishedSurveyScreen', {
         { 
           text: "Delete", 
           style: "destructive",
-          onPress: () => confirmDeleteSurvey(survey)
+          onPress: async () => {
+            try {
+              // ✅ GET JWT TOKEN
+              const { data: { session } } = await supabase.auth.getSession();
+              const token = session?.access_token;
+              
+              if (!token) {
+                Alert.alert("Session Expired", "Please sign in again");
+                return;
+              }
+              
+              const deleteResponse = await fetch(
+                `${SUPABASE_URL}/rest/v1/surveys?id=eq.${survey.id}`,
+                {
+                  method: 'DELETE',
+                  headers: {
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${token}`,
+                    'Prefer': 'return=minimal'
+                  }
+                }
+              );
+
+              if (!deleteResponse.ok) {
+                throw new Error('Failed to delete survey from database');
+              }
+
+              const updatedSurveys = publishedSurveys.filter(s => s.id !== survey.id);
+              setPublishedSurveys(updatedSurveys);
+              
+              Alert.alert("Success", "Survey deleted successfully!");
+              
+            } catch (error) {
+              console.error('Error deleting survey:', error);
+              Alert.alert("Error", "Failed to delete survey from database.");
+            }
+          }
         }
       ]
     );
   };
 
-  const confirmDeleteSurvey = async (survey) => {
-    try {
-      const deleteResponse = await fetch(
-        `${SUPABASE_URL}/rest/v1/surveys?id=eq.${survey.id}`,
-        {
-          method: 'DELETE',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Prefer': 'return=minimal'
-          }
-        }
-      );
-
-      if (!deleteResponse.ok) {
-        throw new Error('Failed to delete survey from database');
-      }
-
-      const updatedSurveys = publishedSurveys.filter(s => s.id !== survey.id);
-      setPublishedSurveys(updatedSurveys);
-      
-      Alert.alert("Success", "Survey deleted successfully!");
-      
-    } catch (error) {
-      console.error('Error deleting survey:', error);
-      Alert.alert("Error", "Failed to delete survey from database.");
-    }
-  };
-
-  // ✅ UPDATED: Finish Survey Function
   const handleFinishSurvey = async (survey) => {
     Alert.alert(
       "Finish Survey",
@@ -246,88 +248,93 @@ navigation.navigate('ViewPublishedSurveyScreen', {
         { 
           text: "Finish Survey", 
           style: "default",
-          onPress: () => confirmFinishSurvey(survey)
+          onPress: async () => {
+            try {
+              console.log('Finishing survey:', survey.id, survey.title);
+              
+              // ✅ GET JWT TOKEN
+              const { data: { session } } = await supabase.auth.getSession();
+              const token = session?.access_token;
+              
+              if (!token) {
+                Alert.alert("Session Expired", "Please sign in again");
+                return;
+              }
+              
+              // ✅ UPDATE survey status to 'finished'
+              const updateResponse = await fetch(
+                `${SUPABASE_URL}/rest/v1/surveys?id=eq.${survey.id}`,
+                {
+                  method: 'PATCH',
+                  headers: {
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    'Prefer': 'return=minimal'
+                  },
+                  body: JSON.stringify({
+                    status: 'finished',
+                    is_draft: false,
+                    updated_at: new Date().toISOString()
+                  })
+                }
+              );
+
+              console.log('Update response status:', updateResponse.status);
+              
+              if (!updateResponse.ok) {
+                const errorText = await updateResponse.text();
+                console.error('Error finishing survey:', errorText);
+                throw new Error('Failed to finish survey in database');
+              }
+
+              // ✅ Remove from local state
+              const updatedSurveys = publishedSurveys.filter(s => s.id !== survey.id);
+              setPublishedSurveys(updatedSurveys);
+              
+              // ✅ SUCCESS - Show options
+              Alert.alert(
+                "Survey Finished Successfully! ✅", 
+                `"${survey.title}" has been moved to Finished Surveys.`,
+                [
+                  { 
+                    text: "Go to Dashboard",
+                    onPress: () => {
+                      navigation.reset({
+                        index: 0,
+                        routes: [
+                          { 
+                            name: 'CreatorDashboard', 
+                            params: { 
+                              refresh: true,
+                              showMessage: `"${survey.title}" marked as finished!`
+                            } 
+                          }
+                        ],
+                      });
+                    }
+                  },
+                  {
+                    text: "Stay Here",
+                    style: 'cancel',
+                    onPress: () => {
+                      loadPublishedSurveys();
+                    }
+                  }
+                ]
+              );
+              
+            } catch (error) {
+              console.error('Error finishing survey:', error);
+              Alert.alert(
+                "Error Finishing Survey", 
+                "Failed to finish survey. Please try again."
+              );
+            }
+          }
         }
       ]
     );
-  };
-
-  const confirmFinishSurvey = async (survey) => {
-    try {
-      console.log('Finishing survey:', survey.id, survey.title);
-      
-      // ✅ UPDATE survey status to 'finished' in Supabase
-      const updateResponse = await fetch(
-        `${SUPABASE_URL}/rest/v1/surveys?id=eq.${survey.id}`,
-        {
-          method: 'PATCH',
-          headers: {
-            'apikey': SUPABASE_ANON_KEY,
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
-          },
-          body: JSON.stringify({
-            status: 'finished',
-            is_draft: false,
-            updated_at: new Date().toISOString()
-          })
-        }
-      );
-
-      console.log('Update response status:', updateResponse.status);
-      
-      if (!updateResponse.ok) {
-        const errorText = await updateResponse.text();
-        console.error('Error finishing survey:', errorText);
-        throw new Error('Failed to finish survey in database');
-      }
-
-      // ✅ Remove from local state
-      const updatedSurveys = publishedSurveys.filter(s => s.id !== survey.id);
-      setPublishedSurveys(updatedSurveys);
-      
-      // ✅ SUCCESS - Show options
-      Alert.alert(
-        "Survey Finished Successfully! ✅", 
-        `"${survey.title}" has been moved to Finished Surveys.\n\n✅ Removed from Published Surveys\n✅ Added to Finished Surveys\n✅ Dashboard counts updated automatically`,
-        [
-          { 
-            text: "Go to Dashboard",
-            onPress: () => {
-              // Navigate to dashboard with refresh flag
-              navigation.reset({
-                index: 0,
-                routes: [
-                  { 
-                    name: 'CreatorDashboard', 
-                    params: { 
-                      refresh: true,
-                      showMessage: `"${survey.title}" marked as finished!`
-                    } 
-                  }
-                ],
-              });
-            }
-          },
-          {
-            text: "Stay Here",
-            style: 'cancel',
-            onPress: () => {
-              // Refresh current screen
-              loadPublishedSurveys();
-            }
-          }
-        ]
-      );
-      
-    } catch (error) {
-      console.error('Error finishing survey:', error);
-      Alert.alert(
-        "Error Finishing Survey", 
-        "Failed to finish survey. Please check your internet connection and try again."
-      );
-    }
   };
 
   const handleViewAnalytics = (survey) => {
@@ -821,7 +828,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 10,
   },
-  // ✅ NEW: Added Touchable wrapper for the card
   surveyCardTouchable: {
     marginBottom: 15,
   },

@@ -13,6 +13,10 @@ import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { supabase } from '../../supabaseClient';
 
+// Supabase Configuration
+const SUPABASE_URL = 'https://oyavjqycsjfcnzlshdsu.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95YXZqcXljc2pmY256bHNoZHN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxNTgwMjcsImV4cCI6MjA3NTczNDAyN30.22cwyIWSBmhLefCvobdbH42cPSTnw_NmSwbwaYvyLy4';
+
 const DraftsScreen = () => {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
@@ -22,21 +26,49 @@ const DraftsScreen = () => {
   const [selectedDraft, setSelectedDraft] = useState(null);
 
   useEffect(() => {
-    loadDrafts();
+    if (isFocused) {
+      loadDrafts();
+    }
   }, [isFocused]);
 
   const loadDrafts = async () => {
     try {
       setRefreshing(true);
       
-      const { data: draftsData, error } = await supabase
-        .from('surveys')
-        .select('*')
-        .eq('status', 'draft')
-        .eq('user_id', 'user_001')
-        .order('updated_at', { ascending: false });
+      // ✅ GET JWT TOKEN
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
       
-      if (error) throw error;
+      if (!token) {
+        Alert.alert("Session Expired", "Please sign in again");
+        return;
+      }
+      
+      console.log('Fetching drafts with JWT token...');
+      
+      // ✅ USE TOKEN IN REST API
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/surveys?select=*&status=eq.draft&order=updated_at.desc`, 
+        {
+          method: 'GET',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${token}`, // ✅ IMPORTANT
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      console.log('Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error Response:', errorText);
+        throw new Error(`Failed to fetch drafts: ${response.status}`);
+      }
+
+      const draftsData = await response.json();
+      console.log('✅ Drafts fetched:', draftsData.length);
       
       const transformedDrafts = (draftsData || []).map(survey => {
         let questionsArray = [];
@@ -71,7 +103,8 @@ const DraftsScreen = () => {
           createdAt: survey.created_at || new Date().toISOString(),
           plan: survey.plan || 'basic',
           responses: survey.responses_collected || 0,
-          price: survey.price || 0
+          price: survey.price || 0,
+          user_id: survey.user_id // Added for debugging
         };
       });
       
@@ -95,13 +128,11 @@ const DraftsScreen = () => {
     
     // Fix options if they're stored as object instead of array
     const fixedQuestions = (draft.questions || []).map((q, index) => {
-      // Fix options - convert object to array if needed
       let optionsArray = [];
       if (q.options) {
         if (Array.isArray(q.options)) {
           optionsArray = q.options;
         } else if (typeof q.options === 'object') {
-          // Convert object {0: "Option 1", 1: "Option 2"} to array
           optionsArray = Object.values(q.options);
         } else if (typeof q.options === 'string') {
           try {
@@ -112,7 +143,7 @@ const DraftsScreen = () => {
         }
       }
       
-      // Ensure minimum 3 options for question types that need options
+      // Ensure minimum 3 options
       if (['multiple_choice', 'checkboxes', 'dropdown'].includes(q.questionType)) {
         while (optionsArray.length < 3) {
           optionsArray.push('');
@@ -129,7 +160,7 @@ const DraftsScreen = () => {
       };
     });
     
-    // Ensure at least one question exists
+    // Ensure at least one question
     if (fixedQuestions.length === 0) {
       fixedQuestions.push({
         id: 1,
@@ -150,7 +181,7 @@ const DraftsScreen = () => {
     navigation.navigate('CreateNewSurvey', { draftData: safeDraftData });
   };
 
-  const handleDeleteDraft = (draft) => {
+  const handleDeleteDraft = async (draft) => {
     Alert.alert(
       "Delete Draft",
       `Are you sure you want to delete "${draft.formHeading}"?`,
@@ -159,30 +190,46 @@ const DraftsScreen = () => {
         { 
           text: "Delete", 
           style: "destructive",
-          onPress: () => confirmDeleteDraft(draft.id)
+          onPress: async () => {
+            try {
+              // ✅ GET JWT TOKEN
+              const { data: { session } } = await supabase.auth.getSession();
+              const token = session?.access_token;
+              
+              if (!token) {
+                Alert.alert("Session Expired", "Please sign in again");
+                return;
+              }
+              
+              const deleteResponse = await fetch(
+                `${SUPABASE_URL}/rest/v1/surveys?id=eq.${draft.id}`,
+                {
+                  method: 'DELETE',
+                  headers: {
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Authorization': `Bearer ${token}`,
+                    'Prefer': 'return=minimal'
+                  }
+                }
+              );
+
+              if (!deleteResponse.ok) {
+                throw new Error('Failed to delete draft');
+              }
+
+              const updatedDrafts = drafts.filter(d => d.id !== draft.id);
+              setDrafts(updatedDrafts);
+              
+              Alert.alert("Success", "Draft deleted successfully!");
+              
+            } catch (error) {
+              console.error('Error deleting draft:', error);
+              Alert.alert("Error", "Failed to delete draft from database");
+            }
+          }
         }
       ]
     );
-  };
-
-  const confirmDeleteDraft = async (draftId) => {
-    try {
-      const { error } = await supabase
-        .from('surveys')
-        .delete()
-        .eq('id', draftId);
-      
-      if (error) throw error;
-      
-      const updatedDrafts = drafts.filter(draft => draft.id !== draftId);
-      setDrafts(updatedDrafts);
-      
-      Alert.alert("Success", "Draft deleted successfully from database!");
-      
-    } catch (error) {
-      console.error('Error deleting draft:', error);
-      Alert.alert("Error", "Failed to delete draft from database");
-    }
   };
 
   const handlePreviewDraft = (draft) => {
