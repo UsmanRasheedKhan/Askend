@@ -421,6 +421,47 @@ const getCategoryColor = (category) => {
     return colors[category] || '#FF7E1D';
 };
 
+const parseJsonColumn = (value, fallback) => {
+    if (!value && value !== 0) {
+        return fallback;
+    }
+
+    if (Array.isArray(value) || typeof value === 'object') {
+        return value;
+    }
+
+    if (typeof value === 'string') {
+        try {
+            const parsed = JSON.parse(value);
+            return parsed ?? fallback;
+        } catch (error) {
+            console.warn('Failed to parse JSON column:', error);
+            return fallback;
+        }
+    }
+
+    return fallback;
+};
+
+const parseSurveyQuestions = (rawQuestions) => {
+    const parsed = parseJsonColumn(rawQuestions, []);
+    if (Array.isArray(parsed)) {
+        return parsed;
+    }
+    if (parsed && typeof parsed === 'object') {
+        return Object.values(parsed);
+    }
+    return [];
+};
+
+const parseDemographicFilters = (rawFilters) => {
+    const parsed = parseJsonColumn(rawFilters, {});
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed;
+    }
+    return {};
+};
+
 // ----------------------------------------------------
 // ✅ MAIN COMPONENT
 // ----------------------------------------------------
@@ -442,7 +483,7 @@ const FillerDashboardScreen = ({ navigation, route }) => {
     const [greenCardTimer, setGreenCardTimer] = useState(null);
     
     // ✅ NEW: Available surveys count
-    const [availableCount, setAvailableCount] = useState(0);
+    const [surveyTab, setSurveyTab] = useState('available');
 
     // --- Check if green card already shown from AsyncStorage ---
     useEffect(() => {
@@ -604,8 +645,8 @@ const FillerDashboardScreen = ({ navigation, route }) => {
     const token = session.access_token;
     
     // ✅ SIMPLIFIED QUERY: Sirf published surveys
-    const surveysResponse = await fetch(
-      `${SURVEYS_URL}?select=id,title,description,category,price,responses_collected,total_responses,created_at,is_public_form&status=eq.published&order=created_at.desc`, 
+        const surveysResponse = await fetch(
+            `${SURVEYS_URL}?select=id,title,description,category,price,responses_collected,total_responses,created_at,is_public_form,questions,demographic_filters&status=eq.published&order=created_at.desc`, 
       {
         headers: {
           'apikey': SUPABASE_ANON_KEY,
@@ -640,9 +681,10 @@ const FillerDashboardScreen = ({ navigation, route }) => {
       console.log(`   - "${s.title}" (ID: ${s.id})`);
     });
     
-    setAvailableCount(filteredSurveys.length);
-    
-    return filteredSurveys.map(survey => ({
+        return filteredSurveys.map(survey => {
+            const parsedQuestions = parseSurveyQuestions(survey.questions);
+            const parsedFilters = parseDemographicFilters(survey.demographic_filters);
+            return ({
       id: survey.id.toString(),
       title: survey.title || "Untitled Survey",
       description: survey.description || "No description provided",
@@ -653,9 +695,10 @@ const FillerDashboardScreen = ({ navigation, route }) => {
       createdAt: survey.created_at || new Date().toISOString(),
       isPublicForm: survey.is_public_form || false,
       status: 'published',
-      questions: [],
-      demographicFilters: {}
-    }));
+                questions: parsedQuestions,
+                demographicFilters: parsedFilters
+            });
+        });
     
   } catch (error) {
     console.error('❌ Simple fetch error:', error);
@@ -703,7 +746,10 @@ const FillerDashboardScreen = ({ navigation, route }) => {
             awardedAmount, 
             isProfileComplete: profileCompleteStatus, 
             showSurveyUnlockPopup,
-            showGreenProfileCard: showGreenCard
+            showGreenProfileCard: showGreenCard,
+            refreshKey,
+            defaultSurveyTab,
+            successSurveyTitle
         } = route.params || {};
 
         let needsParamClear = false;
@@ -730,15 +776,33 @@ const FillerDashboardScreen = ({ navigation, route }) => {
             showTemporaryGreenCard();
             needsParamClear = true;
         }
+
+        if (defaultSurveyTab) {
+            setSurveyTab(defaultSurveyTab);
+            needsParamClear = true;
+        }
+
+        if (refreshKey) {
+            loadDashboardData();
+            needsParamClear = true;
+        }
+
+        if (successSurveyTitle) {
+            Alert.alert('Survey Filled', `"${successSurveyTitle}" moved to Filled tab.`);
+            needsParamClear = true;
+        }
         
         if (needsParamClear) {
             navigation.setParams({ 
                 awardedAmount: undefined,
                 showSurveyUnlockPopup: false,
-                showGreenProfileCard: undefined
+                showGreenProfileCard: undefined,
+                refreshKey: undefined,
+                defaultSurveyTab: undefined,
+                successSurveyTitle: undefined
             });
         }
-    }, [route.params, navigation, hasShownGreenCard]);
+    }, [route.params, navigation, hasShownGreenCard, loadDashboardData]);
 
     // Handle survey click
     const handleSurveyClick = (survey) => {
@@ -764,6 +828,14 @@ const FillerDashboardScreen = ({ navigation, route }) => {
                 </View>
             );
         }
+
+        const upcomingSurveys = availableSurveys.filter((survey) => !completedSurveyIds.has(survey.id));
+        const filledSurveysList = availableSurveys.filter((survey) => completedSurveyIds.has(survey.id));
+        const isAvailableTab = surveyTab === 'available';
+        const listToRender = isAvailableTab ? upcomingSurveys : filledSurveysList;
+        const sectionTitleText = isAvailableTab
+            ? `Available Surveys (${upcomingSurveys.length})`
+            : `Filled Surveys (${filledSurveysList.length})`;
 
         return (
             <ScrollView 
@@ -793,14 +865,39 @@ const FillerDashboardScreen = ({ navigation, route }) => {
                 {/* ✅ 3. AVAILABLE SURVEYS SECTION */}
                 {isProfileComplete ? (
                     <>
+                        <View style={styles.tabSwitcher}>
+                            <TouchableOpacity
+                                style={[styles.tabChip, isAvailableTab && styles.tabChipActive]}
+                                onPress={() => setSurveyTab('available')}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={[styles.tabChipText, isAvailableTab && styles.tabChipTextActive]}>Available</Text>
+                                <View style={[styles.tabChipCounter, isAvailableTab && styles.tabChipCounterActive]}>
+                                    <Text style={[styles.tabChipCounterText, isAvailableTab && styles.tabChipCounterTextActive]}>
+                                        {upcomingSurveys.length}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.tabChip, !isAvailableTab && styles.tabChipActive]}
+                                onPress={() => setSurveyTab('filled')}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={[styles.tabChipText, !isAvailableTab && styles.tabChipTextActive]}>Filled</Text>
+                                <View style={[styles.tabChipCounter, !isAvailableTab && styles.tabChipCounterActive]}>
+                                    <Text style={[styles.tabChipCounterText, !isAvailableTab && styles.tabChipCounterTextActive]}>
+                                        {filledSurveysList.length}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+                        </View>
+
                         <View style={styles.sectionHeader}>
                             <MaterialCommunityIcons name="clipboard-check-outline" size={24} color="#FF7E1D" />
-                            <Text style={styles.sectionTitle}>
-                                Available Surveys ({availableCount})
-                            </Text>
+                            <Text style={styles.sectionTitle}>{sectionTitleText}</Text>
                         </View>
                         
-                        {userProfile && (
+                        {isAvailableTab && userProfile && (
                             <View style={styles.profileInfo}>
                                 <MaterialCommunityIcons name="account-details" size={18} color="#666" />
                                 <Text style={styles.profileInfoText}>
@@ -809,9 +906,9 @@ const FillerDashboardScreen = ({ navigation, route }) => {
                             </View>
                         )}
                         
-                        {availableCount > 0 ? (
+                        {listToRender.length > 0 ? (
                             <>
-                                {availableSurveys.map((survey) => (
+                                {listToRender.map((survey) => (
                                     <AvailableSurveyCard
                                         key={survey.id}
                                         survey={survey}
@@ -822,21 +919,26 @@ const FillerDashboardScreen = ({ navigation, route }) => {
                             </>
                         ) : (
                             <View style={styles.emptySurveysContainer}>
-                                <MaterialIcons name="search-off" size={50} color="#ddd" />
-                                <Text style={styles.emptySurveysText}>No matching surveys found</Text>
-                                <Text style={styles.emptySurveysSubtext}>
-                                    {userProfile ? 
-                                        `No surveys match your profile criteria (${userProfile.gender}, ${userProfile.age} yrs).` :
-                                        'Complete your profile to see available surveys.'
-                                    }
+                                <MaterialIcons name={isAvailableTab ? 'search-off' : 'check-circle'} size={50} color="#ddd" />
+                                <Text style={styles.emptySurveysText}>
+                                    {isAvailableTab ? 'No matching surveys found' : 'No filled surveys yet'}
                                 </Text>
-                                <TouchableOpacity 
-                                    style={styles.refreshButton}
-                                    onPress={onRefresh}
-                                >
-                                    <MaterialIcons name="refresh" size={20} color="#FF7E1D" />
-                                    <Text style={styles.refreshButtonText}>Refresh</Text>
-                                </TouchableOpacity>
+                                <Text style={styles.emptySurveysSubtext}>
+                                    {isAvailableTab
+                                        ? (userProfile
+                                            ? `No surveys match your profile criteria (${userProfile.gender}, ${userProfile.age} yrs).`
+                                            : 'Complete your profile to see available surveys.')
+                                        : 'Completed surveys will appear here once you submit responses.'}
+                                </Text>
+                                {isAvailableTab && (
+                                    <TouchableOpacity 
+                                        style={styles.refreshButton}
+                                        onPress={onRefresh}
+                                    >
+                                        <MaterialIcons name="refresh" size={20} color="#FF7E1D" />
+                                        <Text style={styles.refreshButtonText}>Refresh</Text>
+                                    </TouchableOpacity>
+                                )}
                             </View>
                         )}
                     </>
@@ -1016,6 +1118,63 @@ const styles = StyleSheet.create({
         color: '#2C5282',
         marginLeft: 8,
         flex: 1,
+    },
+
+    tabSwitcher: {
+        flexDirection: 'row',
+        backgroundColor: '#FFF5EC',
+        borderRadius: 16,
+        padding: 6,
+        borderWidth: 1,
+        borderColor: '#FFE0BF',
+        marginTop: 10,
+        marginBottom: 10,
+    },
+    tabChip: {
+        flex: 1,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        borderRadius: 12,
+    },
+    tabChipActive: {
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#FFD19B',
+        shadowColor: '#FF7E1D',
+        shadowOpacity: 0.1,
+        shadowRadius: 6,
+        elevation: 2,
+    },
+    tabChipText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#AA5A16',
+    },
+    tabChipTextActive: {
+        color: '#FF7E1D',
+    },
+    tabChipCounter: {
+        minWidth: 32,
+        height: 24,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#FFE3C7',
+        paddingHorizontal: 8,
+    },
+    tabChipCounterActive: {
+        backgroundColor: '#FF7E1D',
+    },
+    tabChipCounterText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#C0762E',
+    },
+    tabChipCounterTextActive: {
+        color: '#fff',
     },
 
     // --- CARD STYLES ---

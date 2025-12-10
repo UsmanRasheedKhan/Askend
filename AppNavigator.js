@@ -70,6 +70,7 @@ const AppNavigator = () => {
         <Stack.Screen name="PublishedSurveysScreen" component={PublishedSurveysScreen} />
         <Stack.Screen name="FinishedSurveysScreen"  component={FinishedSurveysScreen} />
         <Stack.Screen name="ViewPublishedSurveyScreen" component={ViewPublishedSurveyScreen} />
+        <Stack.Screen name="FillSurveyScreen" component={ViewPublishedSurveyScreen} />
         <Stack.Screen name="ProfileViewScreen" component={ProfileViewScreen} />
         <Stack.Screen name="ChangePassword" component={ChangePassword} />
         <Stack.Screen name="WalletScreen" component={WalletScreen} />
