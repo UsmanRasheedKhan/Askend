@@ -256,11 +256,12 @@ const RegularProfileCard = ({ isProfileComplete, navigation }) => {
 // ----------------------------------------------------
 // ✅ AVAILABLE SURVEY CARD
 // ----------------------------------------------------
-const AvailableSurveyCard = ({ survey, onPress, completed }) => {
+const AvailableSurveyCard = ({ survey, onPress, completed, allowViewing = false }) => {
     const cardGradientColors = completed ? ['#38C172', '#69e09d'] : ['#FF7E1D', '#FFD464'];
     const cardIcon = completed ? 'check-circle' : 'description';
     const cardBorderColor = completed ? '#38C172' : '#FF7E1D';
     const cardBackgroundColor = completed ? '#38C17224' : '#F6B93B24';
+    const cardDisabled = completed && !allowViewing;
     
     let surveyDescription = survey.description || 'Complete this survey and earn rewards';
     if (completed) {
@@ -285,9 +286,9 @@ const AvailableSurveyCard = ({ survey, onPress, completed }) => {
                     borderColor: cardBorderColor 
                 }
             ]}
-            onPress={onPress}
-            disabled={completed}
-            activeOpacity={completed ? 1 : 0.8}
+            onPress={cardDisabled ? undefined : onPress}
+            disabled={cardDisabled}
+            activeOpacity={cardDisabled ? 1 : 0.8}
         >
             <View style={styles.cardHeader}>
                 <LinearGradient
@@ -384,10 +385,22 @@ const AvailableSurveyCard = ({ survey, onPress, completed }) => {
                 </View>
                 
                 {completed ? (
-                    <View style={[styles.actionButton, {backgroundColor: '#38C172'}]}>
-                        <MaterialIcons name="check" size={16} color="#fff" />
-                        <Text style={styles.actionButtonText}>Completed</Text>
-                    </View>
+                    allowViewing ? (
+                        <TouchableOpacity 
+                            style={styles.actionButton}
+                            onPress={onPress}
+                        >
+                            <LinearGradient colors={['#4CAF50', '#2E7D32']} style={styles.actionButtonGradient}>
+                                <MaterialIcons name="visibility" size={16} color="#fff" />
+                                <Text style={styles.actionButtonText}>View Answers</Text>
+                            </LinearGradient>
+                        </TouchableOpacity>
+                    ) : (
+                        <View style={[styles.actionButton, {backgroundColor: '#38C172'}]}>
+                            <MaterialIcons name="check" size={16} color="#fff" />
+                            <Text style={styles.actionButtonText}>Completed</Text>
+                        </View>
+                    )
                 ) : (
                     <TouchableOpacity 
                         style={styles.actionButton}
@@ -472,6 +485,7 @@ const FillerDashboardScreen = ({ navigation, route }) => {
     const [isSurveyUnlockModalVisible, setIsSurveyUnlockModalVisible] = useState(false);
     const [availableSurveys, setAvailableSurveys] = useState([]);
     const [completedSurveyIds, setCompletedSurveyIds] = useState(new Set());
+    const [completedResponsesMap, setCompletedResponsesMap] = useState(new Map());
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [userName, setUserName] = useState('');
@@ -609,10 +623,10 @@ const FillerDashboardScreen = ({ navigation, route }) => {
     const fetchCompletedSurveys = useCallback(async () => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            if (!session) return new Set();
+            if (!session) return { ids: new Set(), responses: new Map(), totalReward: 0 };
 
             const response = await fetch(
-                `${SURVEY_RESPONSES_URL}?user_id=eq.${session.user.id}&select=survey_id`,
+                `${SURVEY_RESPONSES_URL}?user_id=eq.${session.user.id}&select=survey_id,response_data,reward_amount`,
                 {
                     headers: {
                         'apikey': SUPABASE_ANON_KEY,
@@ -624,14 +638,29 @@ const FillerDashboardScreen = ({ navigation, route }) => {
 
             if (response.ok) {
                 const data = await response.json();
-                const completedIds = new Set(data.map(item => item.survey_id));
-                return completedIds;
+                const completedIds = new Set();
+                const responsesMap = new Map();
+                let totalReward = 0;
+
+                data.forEach(item => {
+                    const surveyId = item?.survey_id ? item.survey_id.toString() : null;
+                    if (surveyId) {
+                        completedIds.add(surveyId);
+                        const parsedResponse = parseJsonColumn(item?.response_data, []);
+                        responsesMap.set(surveyId, parsedResponse);
+                    }
+
+                    const rewardAmount = Number(item?.reward_amount) || 0;
+                    totalReward += rewardAmount;
+                });
+
+                return { ids: completedIds, responses: responsesMap, totalReward };
             } else {
-                return new Set();
+                return { ids: new Set(), responses: new Map(), totalReward: 0 };
             }
         } catch (error) {
             console.error('❌ Error fetching completed surveys:', error);
-            return new Set();
+            return { ids: new Set(), responses: new Map(), totalReward: 0 };
         }
     }, []);
 
@@ -717,7 +746,7 @@ const FillerDashboardScreen = ({ navigation, route }) => {
         setLoading(true);
         
         try {
-            const [userProfileData, completedSurveys] = await Promise.all([
+            const [userProfileData, completedSurveysResult] = await Promise.all([
                 fetchUserProfile(),
                 fetchCompletedSurveys()
             ]);
@@ -727,7 +756,13 @@ const FillerDashboardScreen = ({ navigation, route }) => {
                 setAvailableSurveys(availableSurveysData);
             }
             
-            setCompletedSurveyIds(completedSurveys);
+            if (completedSurveysResult) {
+                setCompletedSurveyIds(completedSurveysResult.ids || new Set());
+                setCompletedResponsesMap(completedSurveysResult.responses || new Map());
+                setWalletBalance(completedSurveysResult.totalReward || 0);
+            } else {
+                setWalletBalance(0);
+            }
             
         } catch (error) {
             console.error('❌ Error loading dashboard:', error);
@@ -788,7 +823,7 @@ const FillerDashboardScreen = ({ navigation, route }) => {
         }
 
         if (successSurveyTitle) {
-            Alert.alert('Survey Filled', `"${successSurveyTitle}" moved to Filled tab.`);
+            // Alert.alert('Survey Filled', `"${successSurveyTitle}" moved to Filled tab.`);
             needsParamClear = true;
         }
         
@@ -815,6 +850,16 @@ const FillerDashboardScreen = ({ navigation, route }) => {
         navigation.navigate('FillSurveyScreen', { 
             surveyId: survey.id,
             survey: survey
+        });
+    };
+
+    const handleViewSubmission = (survey) => {
+        const savedResponses = completedResponsesMap.get(survey.id) || [];
+        navigation.navigate('ViewPublishedSurveyScreen', {
+            surveyId: survey.id,
+            survey,
+            mode: 'view-submission',
+            readonlyResponses: savedResponses,
         });
     };
 
@@ -908,14 +953,23 @@ const FillerDashboardScreen = ({ navigation, route }) => {
                         
                         {listToRender.length > 0 ? (
                             <>
-                                {listToRender.map((survey) => (
-                                    <AvailableSurveyCard
-                                        key={survey.id}
-                                        survey={survey}
-                                        completed={completedSurveyIds.has(survey.id)}
-                                        onPress={() => handleSurveyClick(survey)}
-                                    />
-                                ))}
+                                {listToRender.map((survey) => {
+                                    const isCompleted = completedSurveyIds.has(survey.id);
+                                    const allowViewing = !isAvailableTab && isCompleted;
+                                    const onPressHandler = allowViewing
+                                        ? () => handleViewSubmission(survey)
+                                        : () => handleSurveyClick(survey);
+
+                                    return (
+                                        <AvailableSurveyCard
+                                            key={survey.id}
+                                            survey={survey}
+                                            completed={isCompleted}
+                                            allowViewing={allowViewing}
+                                            onPress={onPressHandler}
+                                        />
+                                    );
+                                })}
                             </>
                         ) : (
                             <View style={styles.emptySurveysContainer}>

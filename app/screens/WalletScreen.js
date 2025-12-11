@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
     StyleSheet,
     View,
@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { supabase } from '../../supabaseClient';
 
 const { width } = Dimensions.get('window');
 
@@ -40,11 +42,13 @@ const TabItem = ({ iconName, label, isCurrent, onPress }) => (
 
 // Recent Activity Card Component
 const ActivityCard = ({ type, amount, time }) => {
-    const isCredit = type === 'Survey Reward' || type === 'Referral Bonus';
+    const normalizedType = (type || '').toLowerCase();
+    const isCredit = normalizedType.includes('reward') || normalizedType.includes('bonus');
     const iconName = isCredit ? 'plus-circle' : 'minus-circle';
     const iconColor = isCredit ? '#00C853' : '#FF3B30';
     const amountColor = isCredit ? '#00C853' : '#FF3B30';
     const amountPrefix = isCredit ? '+ Rs. ' : '- Rs. ';
+    const numericAmount = Number(amount) || 0;
 
     return (
         <View style={styles.activityCard}>
@@ -61,23 +65,45 @@ const ActivityCard = ({ type, amount, time }) => {
             </View>
             
             <Text style={[styles.activityAmount, { color: amountColor }]}>
-                {amountPrefix}{amount.toLocaleString()}
+                {amountPrefix}{numericAmount.toLocaleString()}
             </Text>
         </View>
     );
 };
 
+const formatActivityTime = (timestamp) => {
+    if (!timestamp) {
+        return 'Just now';
+    }
+
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) {
+        return 'Pending';
+    }
+
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+
+    const timeString = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+    if (date.toDateString() === now.toDateString()) {
+        return `Today, ${timeString}`;
+    }
+
+    if (date.toDateString() === yesterday.toDateString()) {
+        return `Yesterday, ${timeString}`;
+    }
+
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+};
+
 // Wallet Screen Component
 const WalletScreen = ({ navigation }) => {
-    const [loading, setLoading] = useState(false);
-    const [totalBalance, setTotalBalance] = useState(2450);
-    const [recentActivity, setRecentActivity] = useState([
-        { id: 1, type: 'Survey Reward', amount: 150, time: 'Today, 2:30 PM' },
-        { id: 2, type: 'Withdrawn', amount: 85, time: 'Today, 11:45 AM' },
-        { id: 3, type: 'Referral Bonus', amount: 200, time: 'Yesterday, 3:15 PM' },
-        { id: 4, type: 'Survey Reward', amount: 120, time: 'Dec 20, 10:30 AM' },
-        { id: 5, type: 'Withdrawn', amount: 50, time: 'Dec 18, 4:45 PM' },
-    ]);
+    const [loading, setLoading] = useState(true);
+    const [totalBalance, setTotalBalance] = useState(0);
+    const [recentActivity, setRecentActivity] = useState([]);
+    const [completedSurveysCount, setCompletedSurveysCount] = useState(0);
 
     // Get Greeting
     const getGreeting = () => {
@@ -86,6 +112,58 @@ const WalletScreen = ({ navigation }) => {
         if (hour < 17) return 'Good Afternoon';
         return 'Good Evening';
     };
+
+    const fetchWalletData = useCallback(async () => {
+        try {
+            setLoading(true);
+
+            const { data: { session }, error } = await supabase.auth.getSession();
+            if (error) {
+                throw error;
+            }
+
+            if (!session) {
+                setTotalBalance(0);
+                setRecentActivity([]);
+                setCompletedSurveysCount(0);
+                return;
+            }
+
+            const { data, error: responsesError } = await supabase
+                .from('survey_responses')
+                .select('id,reward_amount,completed_at,payment_status')
+                .eq('user_id', session.user.id)
+                .order('completed_at', { ascending: false });
+
+            if (responsesError) {
+                throw responsesError;
+            }
+
+            const rows = Array.isArray(data) ? data : [];
+            const total = rows.reduce((sum, row) => sum + (Number(row?.reward_amount) || 0), 0);
+            const activityEntries = rows.slice(0, 5).map(row => ({
+                id: row.id,
+                type: row?.payment_status === 'paid' ? 'Survey Reward (Paid)' : 'Survey Reward',
+                amount: Number(row?.reward_amount) || 0,
+                time: formatActivityTime(row?.completed_at),
+            }));
+
+            setTotalBalance(total);
+            setRecentActivity(activityEntries);
+            setCompletedSurveysCount(rows.length);
+        } catch (error) {
+            console.error('Error loading wallet:', error);
+            Alert.alert('Wallet Error', error.message || 'Unable to load wallet details. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useFocusEffect(
+        useCallback(() => {
+            fetchWalletData();
+        }, [fetchWalletData])
+    );
 
     const handleWithdraw = () => {
         Alert.alert(
@@ -217,20 +295,20 @@ const WalletScreen = ({ navigation }) => {
                             colors={['#E8F5E9', '#C8E6C9']}
                             style={styles.statCardGradient}
                         >
-                            <MaterialCommunityIcons name="cash-plus" size={24} color="#00C853" />
-                            <Text style={styles.statValue}>Rs. 470</Text>
-                            <Text style={styles.statLabel}>Total Earned</Text>
+                            <MaterialCommunityIcons name="clipboard-check-outline" size={24} color="#00C853" />
+                            <Text style={styles.statValue}>{completedSurveysCount}</Text>
+                            <Text style={styles.statLabel}>Surveys Completed</Text>
                         </LinearGradient>
                     </View>
                     
                     <View style={styles.statCard}>
                         <LinearGradient
-                            colors={['#FFEBEE', '#FFCDD2']}
+                            colors={['#FFF3E0', '#FFE0B2']}
                             style={styles.statCardGradient}
                         >
-                            <MaterialCommunityIcons name="cash-minus" size={24} color="#FF3B30" />
-                            <Text style={styles.statValue}>Rs. 135</Text>
-                            <Text style={styles.statLabel}>Total Withdrawn</Text>
+                            <MaterialCommunityIcons name="cash-plus" size={24} color="#FF7E1D" />
+                            <Text style={styles.statValue}>Rs. {totalBalance.toLocaleString()}</Text>
+                            <Text style={styles.statLabel}>Total Earned</Text>
                         </LinearGradient>
                     </View>
                     
@@ -246,14 +324,18 @@ const WalletScreen = ({ navigation }) => {
                 </View>
                 
                 <View style={styles.activityList}>
-                    {recentActivity.map(activity => (
-                        <ActivityCard
-                            key={activity.id}
-                            type={activity.type}
-                            amount={activity.amount}
-                            time={activity.time}
-                        />
-                    ))}
+                    {recentActivity.length === 0 ? (
+                        <Text style={styles.emptyActivityText}>No wallet activity yet. Complete a survey to earn rewards.</Text>
+                    ) : (
+                        recentActivity.map((activity, index) => (
+                            <ActivityCard
+                                key={`${activity.id || 'activity'}-${index}`}
+                                type={activity.type}
+                                amount={activity.amount}
+                                time={activity.time}
+                            />
+                        ))
+                    )}
                 </View>
 
                 {/* Withdraw Button ONLY - REMOVED Add Money Button */}
@@ -487,6 +569,12 @@ const styles = StyleSheet.create({
     },
     activityList: {
         marginBottom: 25,
+    },
+    emptyActivityText: {
+        textAlign: 'center',
+        color: '#999',
+        fontSize: 14,
+        marginBottom: 15,
     },
     activityCard: {
         flexDirection: 'row',

@@ -11,6 +11,7 @@ import RoleSelectionScreen from "./app/screens/RoleSelectionScreen";
 import FillerDashboardScreen from "./app/screens/FillerDashboardScreen.js";
 import CreatorDashboardScreen from "./app/screens/CreatorDashboardScreen.js";
 import ForgotPasswordScreen from "./app/screens/ForgotPasswordScreen";
+import OtpVerificationScreen from "./app/screens/OtpVerificationScreen";
 import CreateNewSurveyScreen from "./app/screens/CreateNewSurveyScreen";
 import PreviewScreen from './app/screens/PreviewScreen';
 import DraftsScreen from './app/screens/DraftsScreen';
@@ -59,6 +60,7 @@ const AppNavigator = () => {
         <Stack.Screen name="SignIn" component={SignInScreen} />
         <Stack.Screen name="SignUp" component={SignUpScreen} />
         <Stack.Screen name="ForgotPasswordScreen" component={ForgotPasswordScreen} />
+        <Stack.Screen name="OtpVerification" component={OtpVerificationScreen} />
         <Stack.Screen name="PasswordUpdateScreen" component={PasswordUpdateScreen} />
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="FillerDashboard" component={FillerDashboardScreen} />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -78,10 +78,54 @@ const buildInitialResponses = (questionList = []) => {
   return initial;
 };
 
+const hydrateResponsesFromAnswers = (answerList = [], questionList = []) => {
+  if (!Array.isArray(answerList) || answerList.length === 0) {
+    return {};
+  }
+
+  const indexFallbackMap = new Map();
+  answerList.forEach((entry, idx) => {
+    const matchKey = entry?.questionId ?? entry?.question_id ?? null;
+    if (matchKey !== null && matchKey !== undefined) {
+      indexFallbackMap.set(matchKey.toString(), entry);
+    }
+    if (entry?.questionText) {
+      indexFallbackMap.set(`text:${entry.questionText}`, entry);
+    }
+    indexFallbackMap.set(`idx:${idx}`, entry);
+  });
+
+  const hydrated = {};
+  questionList.forEach((question, index) => {
+    const key = getQuestionKey(question, index);
+    const questionId = question?.id ?? question?.questionId;
+    let answerEntry = null;
+
+    if (questionId !== undefined && questionId !== null) {
+      answerEntry = indexFallbackMap.get(questionId.toString());
+    }
+
+    if (!answerEntry && question?.questionText) {
+      answerEntry = indexFallbackMap.get(`text:${question.questionText}`);
+    }
+
+    if (!answerEntry) {
+      answerEntry = indexFallbackMap.get(`idx:${index}`);
+    }
+
+    if (answerEntry) {
+      hydrated[key] = answerEntry.answer ?? '';
+    }
+  });
+
+  return hydrated;
+};
+
 const ViewPublishedSurveyScreen = ({ navigation, route }) => {
   const incomingSurvey = route.params?.survey || {};
   const surveyIdFromParams = route.params?.surveyId || incomingSurvey?.id;
   const isFillMode = route.name === 'FillSurveyScreen' || route.params?.mode === 'fill';
+  const readonlyResponses = route.params?.readonlyResponses;
 
   const [surveyData, setSurveyData] = useState(incomingSurvey);
   const [questions, setQuestions] = useState(() => parseQuestionList(incomingSurvey?.questions));
@@ -90,6 +134,7 @@ const ViewPublishedSurveyScreen = ({ navigation, route }) => {
   const [activeDropdown, setActiveDropdown] = useState(null);
   const [isLoadingSurvey, setIsLoadingSurvey] = useState(false);
   const [hasLoadError, setHasLoadError] = useState(false);
+  const fillStartRef = useRef(Date.now());
 
   const formHeading = surveyData?.title || surveyData?.formHeading || 'Untitled Survey';
   const formDescription = surveyData?.description || surveyData?.formDescription || 'No description provided';
@@ -105,7 +150,18 @@ const ViewPublishedSurveyScreen = ({ navigation, route }) => {
   useEffect(() => {
     setResponses(buildInitialResponses(questions));
     setActiveDropdown(null);
+    fillStartRef.current = Date.now();
   }, [questions]);
+  useEffect(() => {
+    if (!readonlyResponses || !questions.length) {
+      return;
+    }
+    const hydrated = hydrateResponsesFromAnswers(readonlyResponses, questions);
+    if (Object.keys(hydrated).length > 0) {
+      setResponses(prev => ({ ...prev, ...hydrated }));
+    }
+  }, [readonlyResponses, questions]);
+
 
   useEffect(() => {
     if (!isFillMode) {
@@ -291,13 +347,24 @@ const ViewPublishedSurveyScreen = ({ navigation, route }) => {
         answer: responses[getQuestionKey(question, index)] ?? null,
       }));
 
+      const timeTakenSeconds = Math.max(1, Math.round((Date.now() - (fillStartRef.current || Date.now())) / 1000));
+      const deviceInfo = `${Platform.OS} ${Platform.Version || ''}`.trim();
+
+      const rewardValue = Number(surveyData?.price) || 0;
+
       const { error: insertError } = await supabase
         .from('survey_responses')
         .insert([
           {
             survey_id: surveyIdNumeric,
             user_id: session.user.id,
-            responses: formattedAnswers,
+            response_data: formattedAnswers,
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+            time_taken_seconds: timeTakenSeconds,
+            device_info: deviceInfo,
+            reward_amount: rewardValue,
+            payment_status: 'pending',
           },
         ]);
 
@@ -319,23 +386,12 @@ const ViewPublishedSurveyScreen = ({ navigation, route }) => {
         responsesCollected: nextCount,
       }));
 
-      Alert.alert(
-        'Responses Submitted',
-        'Thank you! Your survey responses have been recorded.',
-        [
-          { text: 'Stay here', style: 'cancel' },
-          {
-            text: 'Go to Filled tab',
-            onPress: () => {
-              navigation.navigate('FillerDashboard', {
-                refreshKey: Date.now(),
-                defaultSurveyTab: 'filled',
-                successSurveyTitle: formHeading,
-              });
-            },
-          },
-        ],
-      );
+      navigation.navigate('FillerDashboard', {
+        refreshKey: Date.now(),
+        defaultSurveyTab: 'filled',
+        successSurveyTitle: formHeading,
+        awardedAmount: rewardValue,
+      });
     } catch (error) {
       console.error('Error submitting responses:', error);
       Alert.alert('Submission Failed', error.message || 'Unable to submit responses. Please try again.');
