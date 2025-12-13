@@ -81,7 +81,7 @@ const PasswordUpdateScreen = ({ route, navigation }) => {
                 Alert.alert(
                     "Success!",
                     "Your password has been updated successfully. Please sign in with your new password.",
-                    [{ text: "OK", onPress: () => navigation.replace('SignInScreen') }]
+                    [{ text: "OK", onPress: () => navigation.replace('SignIn') }]
                 );
             }
 
@@ -181,7 +181,7 @@ const PasswordUpdateScreen = ({ route, navigation }) => {
 
                         {/* Go Back (Optional) */}
                         <TouchableOpacity 
-                            onPress={() => navigation.navigate('SignInScreen')} 
+                            onPress={() => navigation.navigate('SignIn')} 
                             style={styles.backButton}
                             disabled={isLoading}
                         >
