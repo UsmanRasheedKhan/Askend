@@ -22,6 +22,7 @@ import ViewPublishedSurveyScreen from './app/screens/ViewPublishedSurveyScreen';
 import ProfileViewScreen from './app/screens/ProfileViewScreen';
 import ChangePassword from './app/screens/ChangePassword';
 import WalletScreen from './app/screens/WalletScreen';
+import SurveyAnalyticsScreen from './app/screens/SurveyAnalyticsScreen';
 // --- PROFILE COMPLETION FLOW IMPORTS ---
 import ProfileCompletionScreen from "./app/screens/ProfileCompletionScreen";
 import ContactInfoScreen from "./app/screens/ContactInfoScreen.js";
@@ -76,6 +77,7 @@ const AppNavigator = () => {
         <Stack.Screen name="ProfileViewScreen" component={ProfileViewScreen} />
         <Stack.Screen name="ChangePassword" component={ChangePassword} />
         <Stack.Screen name="WalletScreen" component={WalletScreen} />
+        <Stack.Screen name="SurveyAnalytics" component={SurveyAnalyticsScreen} />
         
         {/* --- PROFILE COMPLETION FLOW (Steps 1, 2, 3, 4) --- */}
         <Stack.Screen name="ProfileCompletionScreen" component={ProfileCompletionScreen} />

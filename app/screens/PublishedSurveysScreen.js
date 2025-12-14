@@ -12,10 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { supabase } from '../../supabaseClient';
-
-// Supabase Configuration
-const SUPABASE_URL = 'https://oyavjqycsjfcnzlshdsu.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95YXZqcXljc2pmY256bHNoZHN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxNTgwMjcsImV4cCI6MjA3NTczNDAyN30.22cwyIWSBmhLefCvobdbH42cPSTnw_NmSwbwaYvyLy4';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../../config';
 
 const PublishedSurveysScreen = () => {
   const navigation = useNavigation();
@@ -38,17 +35,20 @@ const PublishedSurveysScreen = () => {
       // ✅ GET JWT TOKEN
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
+      const creatorId = session?.user?.id;
       
-      if (!token) {
+      if (!token || !creatorId) {
         Alert.alert("Session Expired", "Please sign in again");
         return;
       }
       
       console.log('Fetching published surveys with JWT token...');
+      const encodedCreatorId = encodeURIComponent(creatorId);
+      const query = `select=*&status=eq.published&user_id=eq.${encodedCreatorId}&order=created_at.desc`;
       
       // ✅ USE TOKEN IN REST API
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/surveys?select=*&status=eq.published&order=created_at.desc`, 
+        `${SUPABASE_URL}/rest/v1/surveys?${query}`, 
         {
           method: 'GET',
           headers: {
@@ -185,6 +185,15 @@ const PublishedSurveysScreen = () => {
     // Navigate to ViewPublishedSurveyScreen
     navigation.navigate('ViewPublishedSurveyScreen', { 
       survey: survey
+    });
+  };
+
+  const handleOpenAnalytics = (survey) => {
+    navigation.navigate('SurveyAnalytics', {
+      surveyId: survey.id,
+      surveyTitle: survey.title,
+      planName: survey.planName,
+      targetResponses: survey.totalResponses,
     });
   };
 
@@ -338,22 +347,7 @@ const PublishedSurveysScreen = () => {
   };
 
   const handleViewAnalytics = (survey) => {
-    const progressPercentage = getProgressPercentage(survey);
-    
-    Alert.alert(
-      `📊 Analytics for: ${survey.title}`,
-      `📝 Description: ${survey.description}\n\n` +
-      `🏷️ Category: ${survey.category}\n` +
-      `🌐 Type: ${survey.isPublicForm ? "Public Form" : "Private Form"}\n` +
-      `📈 Progress: ${survey.responsesCollected}/${survey.totalResponses} responses\n` +
-      `🎯 Completion: ${progressPercentage.toFixed(1)}%\n` +
-      `💰 Estimated Value: Rs ${survey.price}\n` +
-      `📅 Published: ${formatDate(survey.createdAt)}\n` +
-      `🔄 Last Updated: ${formatDate(survey.updatedAt)}`,
-      [
-        { text: "OK" }
-      ]
-    );
+    handleOpenAnalytics(survey);
   };
 
   const EmptyPublishedState = () => (
@@ -392,7 +386,7 @@ const PublishedSurveysScreen = () => {
     return (
       <TouchableOpacity 
         style={styles.surveyCardTouchable}
-        onPress={() => handleViewSurvey(survey)}
+        onPress={() => handleOpenAnalytics(survey)}
         activeOpacity={0.7}
       >
         <View style={styles.surveyCard}>
@@ -518,6 +512,17 @@ const PublishedSurveysScreen = () => {
               </Text>
               
               <View style={styles.actionButtons}>
+                <TouchableOpacity 
+                  style={styles.previewButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleViewSurvey(survey);
+                  }}
+                >
+                  <MaterialIcons name="visibility" size={18} color="#FF7800" />
+                  <Text style={styles.previewButtonText}>Preview</Text>
+                </TouchableOpacity>
+                
                 <TouchableOpacity 
                   style={styles.analyticsButton}
                   onPress={(e) => {
@@ -992,6 +997,23 @@ const styles = StyleSheet.create({
   actionButtons: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  previewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FF7800',
+    marginRight: 10,
+    backgroundColor: '#fff',
+  },
+  previewButtonText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#FF7800',
+    marginLeft: 4,
   },
   analyticsButton: {
     flexDirection: 'row',

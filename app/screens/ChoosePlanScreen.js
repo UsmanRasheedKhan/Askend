@@ -260,10 +260,32 @@ const ChoosePlanScreen = ({ navigation, route }) => {
     const [selectedPlan, setSelectedPlan] = useState(null);
     const [customResponses, setCustomResponses] = useState('');
     const [isPublishing, setIsPublishing] = useState(false);
+    const [creatorAccount, setCreatorAccount] = useState({ id: null, email: null });
+    const [authLoading, setAuthLoading] = useState(true);
     
     // ✅ Get draftId from route params
     const draftId = route.params?.draftId;
     const formData = route.params?.formData || {};
+
+    useEffect(() => {
+        const fetchCreatorAccount = async () => {
+            try {
+                const { data, error } = await supabase.auth.getUser();
+                if (error || !data?.user) {
+                    console.error('Unable to fetch creator session for publishing:', error);
+                    setCreatorAccount({ id: null, email: null });
+                    return;
+                }
+                setCreatorAccount({ id: data.user.id, email: data.user.email });
+            } catch (fetchError) {
+                console.error('Failed to load creator auth context:', fetchError);
+            } finally {
+                setAuthLoading(false);
+            }
+        };
+
+        fetchCreatorAccount();
+    }, []);
 
     const handlePlanSelect = (plan) => {
         setSelectedPlan(plan);
@@ -302,6 +324,15 @@ const ChoosePlanScreen = ({ navigation, route }) => {
             return;
         }
 
+        if (authLoading) {
+            Alert.alert("Please wait", "We are verifying your session. Try again in a moment.");
+            return;
+        }
+        if (!creatorAccount.id) {
+            Alert.alert("Session Error", "Unable to verify your account. Please sign in again.");
+            return;
+        }
+
         // Validate custom plan
         if (selectedPlan === 'custom') {
             const responses = parseInt(customResponses) || 0;
@@ -335,7 +366,7 @@ const ChoosePlanScreen = ({ navigation, route }) => {
                 demographic_filters: formData.demographicFilters || {},
                 status: 'published',
                 is_draft: false,
-                user_id: 'user_001',
+                user_id: creatorAccount.id,
                 updated_at: new Date().toISOString()
             };
 

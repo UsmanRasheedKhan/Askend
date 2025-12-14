@@ -380,8 +380,8 @@ const AvailableSurveyCard = ({ survey, onPress, completed, allowViewing = false 
             
             <View style={styles.cardFooter}>
                 <View style={styles.timeEstimate}>
-                    <MaterialCommunityIcons name="timer-outline" size={14} color="#666" />
-                    <Text style={styles.timeText}>~5 mins</Text>
+                    {/* <MaterialCommunityIcons name="timer-outline" size={14} color="#666" /> */}
+                    {/* <Text style={styles.timeText}>~5 mins</Text> */}
                 </View>
                 
                 {completed ? (
@@ -937,10 +937,10 @@ const FillerDashboardScreen = ({ navigation, route }) => {
                             </TouchableOpacity>
                         </View>
 
-                        <View style={styles.sectionHeader}>
-                            <MaterialCommunityIcons name="clipboard-check-outline" size={24} color="#FF7E1D" />
-                            <Text style={styles.sectionTitle}>{sectionTitleText}</Text>
-                        </View>
+                        {/* <View style={styles.sectionHeader}> */}
+                            {/* <MaterialCommunityIcons name="clipboard-check-outline" size={24} color="#FF7E1D" /> */}
+                            {/* <Text style={styles.sectionTitle}>{sectionTitleText}</Text> */}
+                        {/* </View> */}
                         
                         {isAvailableTab && userProfile && (
                             <View style={styles.profileInfo}>

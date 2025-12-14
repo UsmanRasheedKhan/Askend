@@ -246,6 +246,12 @@ const CreatorDashboardScreen = () => {
     navigation.navigate('ProfileViewScreen');
   };
 
+  const handleNavigateToAnalytics = () => {
+    navigation.navigate('PublishedSurveysScreen', {
+      focusAnalytics: true,
+    });
+  };
+
   // ✅ CREATE NEW SURVEY
   const handleCreateNewSurvey = () => {
     navigation.navigate("CreateNewSurvey");
@@ -360,6 +366,28 @@ const CreatorDashboardScreen = () => {
           onPress={handleFinishedPress}
           disabled={finishedCount === 0}
         />
+
+        <LinearGradient
+          colors={["#1FA2FF", "#12D8FA", "#A6FFCB"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.analyticsCard}
+        >
+          <View style={styles.analyticsTextBlock}>
+            <Text style={styles.analyticsTitle}>Insights Hub</Text>
+            <Text style={styles.analyticsSubtitle}>
+              Head to your published surveys and tap any card to open live analytics.
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.analyticsButton}
+            activeOpacity={0.8}
+            onPress={handleNavigateToAnalytics}
+          >
+            <Text style={styles.analyticsButtonText}>View Analytics</Text>
+            <MaterialIcons name="arrow-forward" color="#0B3D91" size={20} />
+          </TouchableOpacity>
+        </LinearGradient>
 
         <View style={styles.extraSpacing} />
 
@@ -649,6 +677,46 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "bold",
     fontSize: 18,
+  },
+  analyticsCard: {
+    borderRadius: 20,
+    padding: 20,
+    marginTop: 10,
+    marginBottom: 10,
+    shadowColor: '#1FA2FF',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  analyticsTextBlock: {
+    marginBottom: 16,
+  },
+  analyticsTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0B3D91',
+    marginBottom: 6,
+  },
+  analyticsSubtitle: {
+    fontSize: 13,
+    color: '#083358',
+    lineHeight: 18,
+  },
+  analyticsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 50,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  analyticsButtonText: {
+    color: '#0B3D91',
+    fontWeight: '700',
+    fontSize: 14,
+    marginRight: 6,
   },
   fabButtonInScroll: {
     alignSelf: "flex-end",

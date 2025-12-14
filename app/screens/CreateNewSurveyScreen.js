@@ -291,6 +291,9 @@ const CreateNewSurveyScreen = ({ navigation, route }) => {
     const [showSubCategoryModal, setShowSubCategoryModal] = useState(false);
     const [selectedMainCategory, setSelectedMainCategory] = useState(null);
 
+    const [creatorContext, setCreatorContext] = useState({ id: null, email: null });
+    const [isCreatorLoading, setIsCreatorLoading] = useState(true);
+
     // Question Builder states
     const [questions, setQuestions] = useState([
         {
@@ -411,6 +414,29 @@ useEffect(() => {
 
     loadDraftData();
 }, [route.params]);
+
+    useEffect(() => {
+        const fetchCreatorContext = async () => {
+            try {
+                const { data, error } = await supabase.auth.getUser();
+                if (error || !data?.user) {
+                    console.error('Unable to fetch creator auth session:', error);
+                    setCreatorContext({ id: null, email: null });
+                    return;
+                }
+                setCreatorContext({
+                    id: data.user.id,
+                    email: data.user.email,
+                });
+            } catch (fetchError) {
+                console.error('Failed to load creator session:', fetchError);
+            } finally {
+                setIsCreatorLoading(false);
+            }
+        };
+
+        fetchCreatorContext();
+    }, []);
 
     const handleCategorySelect = (category) => {
         setSelectedCategory(category);
@@ -902,6 +928,9 @@ useEffect(() => {
     const saveDraftToSupabase = async () => {
         try {
             console.log('Starting to save draft to Supabase...');
+            if (!creatorContext.id) {
+                throw new Error('Unable to verify creator account. Please sign in again.');
+            }
             
             // Prepare demographic filters based on form type
             let demographicFilters = {};
@@ -935,7 +964,7 @@ useEffect(() => {
                 responses_collected: 0,
                 total_responses: 100,
                 price: 300,
-                user_id: 'user_001', // TODO: Replace with actual user ID
+                user_id: creatorContext.id,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             });
@@ -970,6 +999,14 @@ useEffect(() => {
     // --- MANUAL SAVE DRAFT FUNCTIONALITY --- ✅ Step 3: Update Karein
     const handleSaveDraft = async () => {
         try {
+            if (isCreatorLoading) {
+                Alert.alert('Please wait', 'We are verifying your account, try again in a moment.');
+                return;
+            }
+            if (!creatorContext.id) {
+                Alert.alert('Session Error', 'Unable to verify your account. Please sign in again.');
+                return;
+            }
             console.log('=== SAVE DRAFT STARTED ===');
             console.log('Form Heading:', formHeading);
             console.log('Category:', selectedCategory);
@@ -1028,6 +1065,14 @@ useEffect(() => {
 
     // --- PREVIEW WITH AUTO-DRAFT-SAVE FUNCTIONALITY --- ✅ Step 4: Update Karein
     const handlePreview = async () => {
+        if (isCreatorLoading) {
+            Alert.alert('Please wait', 'We are preparing your account, try again in a moment.');
+            return;
+        }
+        if (!creatorContext.id) {
+            Alert.alert('Session Error', 'Unable to verify your account. Please sign in again.');
+            return;
+        }
         // First validate the form
         if (!validateFormForPreview()) {
             Alert.alert(
